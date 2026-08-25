@@ -1,0 +1,28 @@
+# Agent- and machine-local instructions/state
+/AGENTS.md
+/HANDOFF.md
+/WORKLOG.md
+/.agents/
+/.codex/
+/.cache/
+
+# Host-local kernels, root filesystems, VM images, logs, and keys
+/local/
+*.qcow2
+*.img
+*.iso
+*.log
+id_ed25519
+id_ed25519.pub
+
+# Generated language-server database
+/compile_commands.json
+
+# External kernel-module build products
+/driver/edu/.*.cmd
+/driver/edu/*.ko
+/driver/edu/*.mod
+/driver/edu/*.mod.c
+/driver/edu/*.o
+/driver/edu/Module.symvers
+/driver/edu/modules.order

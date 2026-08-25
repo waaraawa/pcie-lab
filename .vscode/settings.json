@@ -1,0 +1,14 @@
+{
+    "clangd.arguments": [
+        "--background-index",
+        "--header-insertion=never",
+        "--fallback-style=none"
+    ],
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+        "editor.formatOnSave": true,
+        "editor.insertSpaces": false,
+        "editor.tabSize": 8
+    }
+}
