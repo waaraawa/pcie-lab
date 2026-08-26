@@ -2,10 +2,16 @@
 
 # Intel macOS Phase 0 settings. Override only the PCIE_* environment variables when
 # a local port or temporary directory conflicts with another process.
-PCIE_PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+# Resolve the repository root in a clean non-interactive shell. Interactive zsh
+# may run a chpwd hook that writes to stdout; doing the cd directly inside this
+# command substitution would then corrupt PCIE_PROJECT_DIR with extra lines.
+PCIE_PROJECT_DIR=$(
+	/bin/sh -c 'CDPATH= cd -- "$(dirname -- "$1")/../../.." && pwd -P' \
+		pcie-config "$0"
+)
 PCIE_PHASE0_DIR=${PCIE_PHASE0_DIR:-/private/tmp/pcie-phase0}
-PCIE_GUEST_IMAGE_URL=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-PCIE_GUEST_IMAGE_SHA256=0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe
+PCIE_GUEST_IMAGE_URL=https://cloud-images.ubuntu.com/releases/releases/noble/release-20260814/ubuntu-24.04-server-cloudimg-amd64.img
+PCIE_GUEST_IMAGE_SHA256=6e40c07ae715f744f84af0bec76415cc1987dd115b4b8de437818561f01a3733
 PCIE_GUEST_IMAGE=${PCIE_PHASE0_DIR}/noble-server-cloudimg-amd64.img
 PCIE_GUEST_OVERLAY=${PCIE_PHASE0_DIR}/guest-overlay.qcow2
 PCIE_SEED_DIR=${PCIE_PHASE0_DIR}/seed
@@ -13,9 +19,9 @@ PCIE_SEED_ISO=${PCIE_PHASE0_DIR}/seed.iso
 PCIE_SSH_KEY=${PCIE_PHASE0_DIR}/id_ed25519
 PCIE_SSH_PORT=${PCIE_SSH_PORT:-2222}
 PCIE_GUEST_USER=pcie
-PCIE_KERNEL_RELEASE=6.8.0-136-generic
-PCIE_KERNEL_HEADERS_VERSION=6.8.0-136.136
-PCIE_BUILDER_IMAGE=pcie-phase0-module-builder:6.8.0-136
+PCIE_KERNEL_RELEASE=6.8.0-137-generic
+PCIE_KERNEL_HEADERS_VERSION=6.8.0-137.137
+PCIE_BUILDER_IMAGE=pcie-phase0-module-builder:6.8.0-137
 PCIE_QEMU_PID=${PCIE_PHASE0_DIR}/qemu.pid
 PCIE_QEMU_MONITOR=${PCIE_PHASE0_DIR}/monitor.sock
 PCIE_SERIAL_LOG=${PCIE_PHASE0_DIR}/serial.log

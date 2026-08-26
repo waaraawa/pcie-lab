@@ -1,240 +1,309 @@
-# Intel macOS Host - Phase 0 Environment and Smoke Test
+# Intel macOS PCIe Lab
 
-This document records the Intel Mac implementation and evidence for the common host-validation contract. Host-independent curriculum requirements live in [`../common/phase-0-host-contract.md`](../common/phase-0-host-contract.md).
+This guide uses the shortest verified workflow for practicing the QEMU EDU PCI
+driver on an Intel Mac:
 
-## Objective
-
-Inventory the Intel Mac host, choose a reproducible Linux/QEMU/kernel-debugging architecture, and prove the minimum boot path before writing a PCI driver.
-
-This phase exists to separate environment failures from driver failures. It ends when a Linux guest can be started repeatedly, the QEMU `edu` device is visible, logs can be retained, and the planned kernel/module development workflow is documented.
-
-## Constraints and assumptions
-
-- The primary workstation is an Intel Mac.
-- QEMU with macOS hardware acceleration is the initial virtualization candidate, but it must be verified locally.
-- Linux is the guest and driver-development target.
-- Git repository setup is intentionally deferred until the user connects the repository.
-- No package, VM, kernel, or large disk image should be installed before the inventory and architecture decision are recorded.
-
-## Host inventory
-
-Collect only information needed to design the lab. Do not record serial numbers, hardware UUIDs, account names, tokens, or unrelated private data.
-
-### Hardware and operating system
-
-- [x] macOS version and build
-- [x] CPU model and architecture
-- [x] Logical and physical CPU count
-- [x] Installed memory
-- [x] Free disk space available to this project
-- [x] Whether the machine can use HVF successfully with x86_64 QEMU
-
-### Existing tools
-
-- [x] Homebrew version and prefix, if installed
-- [x] QEMU version and available x86_64 system binary
-- [x] Docker client availability and version
-- [x] Runnable Docker daemon or another Linux build environment
-- [x] C compiler, linker, make, and related host build tools
-- [x] GDB availability and version
-- [x] LLDB availability and version
-- [x] Existing project-local Linux images or VMs that may be reusable
-
-### Verified environment
-
-Verified on 2026-08-05.
-
-| Item | Verified value | Notes |
-| --- | --- | --- |
-| macOS | 26.5.2, build 25F84 | Host operating system |
-| Host architecture | x86_64 | Confirmed by the installed Clang target |
-| CPU | Intel Core i7-9750H at 2.60 GHz | 6 physical cores, 12 logical CPUs |
-| Memory | 16 GiB | `17179869184` bytes |
-| Project volume | 466 GiB total, 76 GiB available | 83% used; disk consumption must be controlled |
-| Homebrew | 6.0.15 | Intel prefix: `/usr/local` |
-| QEMU | 11.0.3 | `qemu-system-x86_64` executes successfully |
-| QEMU accelerators | `tcg`, `hvf` | Two actual Ubuntu x86_64 guest boots completed with `q35,accel=hvf` |
-| QEMU devices | `edu`, `nvme`, `nvme-ns`, `nvme-subsys` | `q35` machine is also available |
-| Docker | Client 29.6.2, build dfc4efb; Docker Desktop running | A local `linux/amd64` Alpine 3.23 container ran successfully and read the project through a read-only bind mount |
-| C compiler | Apple Clang 21.0.0 | Target is `x86_64-apple-darwin25.5.0` |
-| Linker | Apple `ld` project 1267 | x86_64 support is listed |
-| Make | GNU Make 3.81 | Host tool only; the Linux build environment will provide its own toolchain |
-| Additional build tools | CMake 4.4.2, Ninja 1.13.2, pkg-config 3.0.5 | Available on the host |
-| Parser/build utilities | Bison 2.3, Flex 2.6.4, bc 7.0.3, Perl 5.34.1 | Available on the host |
-| Python | 3.14.6 | Available at `/usr/local/bin/python3` |
-| GDB | 17.2 | QEMU remote connection is not yet tested |
-| LLDB | 2100.0.17.108 | Available as a secondary debugger option |
-| Project-local Linux artifacts | None found | No qcow2, img, ISO, kernel, or `vmlinux` file exists under the project |
-
-### Remaining execution checks
-
-- [x] Prove HVF with an actual x86_64 Linux guest boot. The same guest overlay booted and shut down cleanly twice.
-- [x] Start or select a Linux build environment and prove it can execute. Docker Desktop ran a local `linux/amd64` container successfully without downloading a new image.
-
-### Safe read-only command examples
-
-Use equivalent commands when a listed tool is unavailable. Review output before committing it to the repository.
-
-```sh
-sw_vers
-uname -srm
-uname -m
-sysctl -n machdep.cpu.brand_string
-sysctl -n hw.physicalcpu
-sysctl -n hw.logicalcpu
-sysctl -n hw.memsize
-df -h .
-command -v brew
-command -v qemu-system-x86_64
-command -v docker
-command -v gcc
-command -v clang
-command -v make
-command -v gdb
-command -v lldb
+```text
+Docker builds edu_pci.ko
+        -> QEMU runs Ubuntu and the EDU device
+        -> SCP copies the module into Ubuntu
+        -> SSH provides a shell for the PCIe exercise
 ```
 
-Do not use broad hardware-report commands without filtering out device serial numbers and identifiers.
+The SSH key is only a login credential for the local QEMU guest. It is not a
+GitHub key, a module-signing key, or part of PCIe.
 
-## Architecture decisions
+Run host commands from the repository root. Commands marked **guest** run in
+the Ubuntu shell opened through SSH.
 
-Record the selected value and rationale for each item before installing or generating large artifacts.
+## 1. Learning target
 
-- [x] macOS host responsibilities: run QEMU/HVF, retain source and artifacts, capture logs, and host the debugger
-- [x] Linux build environment: Docker Desktop with explicit `linux/amd64` containers and project-mounted outputs
-- [x] Linux guest distribution and version: Ubuntu 24.04.4 LTS amd64 cloud image, downloaded from the official Noble image service on 2026-08-05
-- [ ] Linux kernel version and configuration source: the stock `6.8.0-136-generic` kernel is validated for smoke tests; the source-based learning kernel is not yet selected
-- [x] Root filesystem format: checksum-verified qcow2 base image plus a disposable writable qcow2 overlay
-- [x] Kernel and module build method for the stock smoke-test kernel: digest-pinned Ubuntu 24.04 amd64 Docker image with exact `6.8.0-136.136` kernel headers; source is mounted read-only and outputs stay under the temporary lab directory
-- [x] Method for moving modules and test artifacts into the guest: SSH/SCP through QEMU user networking and a localhost port forward
-- [x] QEMU machine type and acceleration mode: `q35,accel=hvf`, host CPU, 2 vCPUs, and 2 GiB RAM for the smoke test
-- [x] Serial console and kernel-log capture method: guest kernel uses `console=ttyS0`; QEMU writes serial output to a host file
-- [ ] Kernel debugging method and symbol location
-- [x] VM reset, snapshot, and recovery procedure: request `systemctl poweroff`; preserve the verified base image and recreate the disposable overlay after corruption or unwanted state
-- [x] Location and size policy for generated images and build outputs: scripts and source live in the project; downloaded images, SSH keys, serial logs, module binaries, and other generated artifacts live under `/private/tmp/pcie-phase0` and must not enter version control
+The emulated device is QEMU EDU, identified by PCI vendor/device ID
+`1234:11e8`. Its BAR0 contains registers used by this exercise.
 
-Prefer the smallest setup that satisfies Phase 1. Avoid selecting tools merely because they may be useful in later phases.
+The driver controls the device in this order:
 
-## Smoke test
+1. Match the PCI ID and enter `probe()`.
+2. Enable the PCI device.
+3. Reserve and map BAR0.
+4. Read the identification register.
+5. Write and read the liveness register.
+6. Request factorial, poll for completion, and read the result.
+7. Unmap and release resources in `remove()`.
 
-The first smoke test uses a stock or prebuilt Linux guest when practical. Building a custom kernel is a separate validation step after basic QEMU boot succeeds.
+The exercise succeeds when the log shows:
 
-### Minimum boot path
+```text
+identification: 0x010000ed
+liveness: wrote=0x12345678 read=0xedcba987
+factorial: 5! = 120
+```
 
-- [x] Start `qemu-system-x86_64` with the selected acceleration mode.
-- [x] Reach a usable Linux serial console.
-- [x] Run basic guest commands and retain the console log on the host.
-- [x] Attach QEMU `edu` and find PCI ID `1234:11e8` with `lspci -nn`.
-- [x] Inspect the device's BAR and interrupt information without a custom driver.
-- [x] Shut down or terminate the guest using a documented recovery procedure.
-- [x] Repeat the start, discovery, and shutdown sequence successfully.
+After `rmmod`, the driver binding, module entry, and BAR0 ownership must also be
+gone.
 
-### Validated smoke-test evidence
+## 2. Check the host once
 
-Validated on 2026-08-05. These are smoke-test artifacts, not the final reproducible lab scripts.
+This workflow requires an Intel x86-64 Mac, Docker Desktop, and QEMU with HVF.
 
-- Official image: `noble-server-cloudimg-amd64.img` from `https://cloud-images.ubuntu.com/noble/current/`
-- Verified SHA-256: `0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe`
-- Image format: qcow2, 3.5 GiB virtual size, about 608 MiB allocated on the host
-- Guest result: Ubuntu 24.04.4 LTS, x86_64, stock kernel `6.8.0-136-generic`
-- QEMU result: `q35`, HVF, 2 vCPUs, 2 GiB RAM, virtio disk/network, and QEMU `edu`
-- PCI discovery: `00:03.0`, vendor/device `1234:11e8`, revision `10`
-- Resource discovery: BAR 0 at `0xfea00000`, 32-bit non-prefetchable, size 1 MiB
-- Interrupt discovery: INTx pin A routed to IRQ 11; one 64-bit-capable MSI vector advertised and initially disabled
-- Driver state: intentionally unbound
-- Provisioning result: cloud-init `status: done`; SSH key login through localhost forwarding succeeded
-- Repeatability result: two clean boot/discovery/poweroff sequences completed; the second boot reached its target in 12.639 seconds
-- Disk validation: `qemu-img check` reported no errors after the second clean shutdown
+```sh
+uname -m
+docker info --format 'os={{.OSType}} arch={{.Architecture}}'
+qemu-system-x86_64 --version
+qemu-system-x86_64 -accel help
+```
 
-The temporary base, overlay, seed ISO, private key, and serial logs are under `/private/tmp/pcie-phase0`. The private key is ephemeral and must never be copied into the project or committed. Because `/private/tmp` is not durable project storage, the final artifact and log location remains an open decision.
+Expected results:
 
-### Development-path validation
+- `uname -m` is `x86_64`.
+- Docker reports Linux and `x86_64`.
+- QEMU lists `hvf` as an accelerator.
 
-- [x] Build a minimal external kernel module against the selected kernel headers or build tree.
-- [x] Transfer the module into the guest.
-- [x] Load and unload the module while capturing kernel logs.
-- [ ] Obtain or build a symbol-bearing `vmlinux` for later debugging.
-- [ ] Connect the selected debugger to QEMU and stop at a known kernel symbol, if remote kernel debugging is included in the chosen architecture.
+If Docker cannot connect to its daemon, start Docker Desktop first.
 
-### Validated external-module path
+## 3. Prepare and start the guest
 
-Validated on 2026-08-05 using only the project scripts:
+Load the Mac lab configuration:
 
-1. `scripts/macos/phase0/prepare-vm.sh`
-2. `scripts/macos/phase0/build-module.sh`
-3. `scripts/macos/phase0/start-vm.sh`
-4. `scripts/macos/phase0/wait-for-guest.sh`
-5. `scripts/macos/phase0/test-module.sh`
-6. `scripts/macos/phase0/stop-vm.sh`
+```sh
+. scripts/macos/phase0/config.sh
+```
 
-The builder uses `ubuntu:24.04` for amd64 at digest `sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea` and installs `linux-headers-6.8.0-136-generic` version `6.8.0-136.136`. The source-only module is `labs/phase0/module-smoke/phase0_sanity.c`; it does not access the PCI device and exists only to prove the environment.
+The first run needs an Ubuntu image, writable disk, cloud-init data, and a
+guest login key. The preparation script creates these host-local artifacts
+under `/private/tmp/pcie-phase0` and verifies the downloaded image:
 
-Verified evidence:
+```sh
+scripts/macos/phase0/prepare-vm.sh
+```
 
-- Output format: 64-bit x86-64 relocatable ELF kernel module with debug information
-- Output SHA-256 for this build: `49e377cbe986d0f82b9ab3ff413d08663502cd6c1e1c3285742c98b58c520212`
-- Guest kernel: `6.8.0-136-generic`
-- Module vermagic: `6.8.0-136-generic SMP preempt mod_unload modversions`
-- Load evidence: `phase0_sanity: loaded`
-- Unload evidence: `phase0_sanity: unloaded`
-- Post-test image check: no errors
+This is environment preparation, not part of the PCIe driver exercise. The
+artifacts are reused on later runs and must not be committed.
 
-The build emitted two understood warnings. GCC's executable name differs from the compiler name recorded by Ubuntu, but both report GCC 13.3.0 with the same Ubuntu build version. BTF generation was skipped because a symbol-bearing `vmlinux` is not yet present; resolving that is the remaining debugger-path work.
+Start QEMU and wait for Ubuntu:
 
-Remote GDB is desirable but should not block the earliest `edu` discovery smoke test. Document any debugger limitation explicitly.
+```sh
+scripts/macos/phase0/start-vm.sh
+scripts/macos/phase0/wait-for-guest.sh
+```
 
-## Deliverables
+The wait command checks three things:
 
-- Sanitized host and tool inventory
-- Environment architecture decision record
-- Pinned guest, kernel, QEMU, and tool versions
-- Reproducible QEMU launch command or script design
-- Captured successful boot and `lspci -nn` evidence
-- Documented module build/transfer/load path
-- Debugger validation result or an explicit blocker
-- Disk usage, recovery, and cleanup notes
+- cloud-init finished;
+- the guest kernel is `6.8.0-137-generic`;
+- EDU `1234:11e8` is visible to Linux.
 
-## Completion criteria
+If EDU is missing, confirm QEMU is running before investigating the driver:
 
-- Another contributor can understand the chosen lab architecture without prior conversation.
-- Linux boots repeatedly under QEMU with the selected acceleration mode.
-- QEMU `edu` appears as `1234:11e8` in the guest.
-- Console and kernel logs are retained outside the guest.
-- A minimal module can be built, transferred, loaded, and unloaded.
-- Kernel symbols are available for Phase 1 debugging.
-- Failures, workarounds, and remaining debugger limitations are documented.
-- The learner has personally repeated the essential module and debugger checks and can explain why the running kernel, build headers, module vermagic, and `vmlinux` must match.
-- Phase 1 can begin without an unresolved environment-design decision.
+```sh
+cat "$PCIE_QEMU_PID"
+tail -n 30 "$PCIE_SERIAL_LOG"
+```
 
-## Learner checkpoint
+## 4. Build the module on the Mac
 
-Initial provisioning, downloads, long builds, and troubleshooting may be delegated to an agent, but the concepts below are part of the curriculum and must not be skipped. Phase 0 is not complete until the learner personally performs and explains them.
+The module must be built against the same kernel release as the Ubuntu guest.
+Docker supplies the matching Linux build environment; it does not run the
+driver.
 
-- Compare `uname -r` in the guest with the selected header tree and the module's `modinfo -F vermagic` result.
-- Build the sanity module, transfer it, load it, verify `/sys/module` and `dmesg`, unload it, and verify teardown.
-- Cause or inspect one intentional version-mismatch failure and explain why the kernel rejects that module.
-- Identify `start_kernel` or another known symbol in the exact matching `vmlinux`.
-- Connect GDB to QEMU, stop at the known symbol, and explain why KASLR is disabled for this lab.
-- Explain which work happens in Docker and which work happens in QEMU, and why separating build and execution helps debugging.
+Build the reusable builder image:
 
-The learner does not need to repeat package-manager output or the initial large downloads merely for ceremony. The required work is the technical verification path and the reasoning behind it.
+```sh
+docker build \
+    --platform linux/amd64 \
+    --build-arg "KERNEL_RELEASE=$PCIE_KERNEL_RELEASE" \
+    --build-arg "KERNEL_HEADERS_VERSION=$PCIE_KERNEL_HEADERS_VERSION" \
+    -t "$PCIE_BUILDER_IMAGE" \
+    tools/phase0-module-builder
+```
 
-## Out of scope
+Compile the canonical driver source:
 
-- Implementing the `edu` PCI driver
-- BAR/MMIO programming from a custom driver
-- Interrupt or DMA implementation
-- QEMU NVMe analysis
-- Physical PCIe hardware
-- Windows, ROS 2, or security extensions
+```sh
+mkdir -p "$PCIE_MODULE_OUTPUT"
 
-## Current status
+docker run --rm \
+    --platform linux/amd64 \
+    --mount "type=bind,src=$PCIE_PROJECT_DIR/driver/edu,dst=/src,readonly" \
+    --mount "type=bind,src=$PCIE_MODULE_OUTPUT,dst=/out" \
+    "$PCIE_BUILDER_IMAGE" \
+    bash -lc "
+        set -eu
+        cp -a /src/. /build/
+        make -C /lib/modules/$PCIE_KERNEL_RELEASE/build M=/build modules
+        cp /build/edu_pci.ko /out/
+        modinfo -F vermagic /build/edu_pci.ko
+        modinfo -F alias /build/edu_pci.ko
+    "
+```
 
-- Document scaffold: complete
-- Core host inventory: complete
-- Host and installed-tool inventory: complete
-- Linux build environment execution: validated
-- Architecture selection: in progress; the stock-kernel module path is selected, while the symbol-bearing learning kernel and debugger path remain open
-- QEMU/Linux smoke test: minimum boot path validated twice
-- Module validation: complete
-- Symbol and debugger validation: not started
+Check the output:
+
+```sh
+file "$PCIE_MODULE_OUTPUT/edu_pci.ko"
+```
+
+Expected results:
+
+- `file` reports an x86-64 relocatable ELF file.
+- Vermagic starts with `6.8.0-137-generic`.
+- The PCI alias contains vendor `1234` and device `11E8`.
+
+A vermagic mismatch means the module was built for a different kernel and must
+not be loaded. A skipped-BTF message is expected in this build environment.
+
+## 5. Copy the module and enter Ubuntu
+
+Copy only the built module into the guest:
+
+```sh
+scp \
+    -i "$PCIE_SSH_KEY" \
+    -P "$PCIE_SSH_PORT" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    "$PCIE_MODULE_OUTPUT/edu_pci.ko" \
+    "$PCIE_GUEST_USER@127.0.0.1:/tmp/edu_pci.ko"
+```
+
+Open the guest shell:
+
+```sh
+ssh \
+    -i "$PCIE_SSH_KEY" \
+    -p "$PCIE_SSH_PORT" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    "$PCIE_GUEST_USER@127.0.0.1"
+```
+
+SCP transfers the `.ko` file; SSH is where the remaining commands are entered
+directly. QEMU runs in the background, so its serial port is written to a log
+instead of being used as an interactive terminal.
+
+## 6. Observe the PCI device before loading the driver
+
+Run the rest of this section in the **guest**:
+
+```sh
+lspci -Dnn -d 1234:11e8
+
+export EDU_BDF=$(lspci -Dnn -d 1234:11e8 | awk 'NR == 1 { print $1 }')
+echo "$EDU_BDF"
+sudo lspci -vv -s "$EDU_BDF"
+
+cat "/sys/bus/pci/devices/$EDU_BDF/vendor"
+cat "/sys/bus/pci/devices/$EDU_BDF/device"
+cat "/sys/bus/pci/devices/$EDU_BDF/resource"
+test ! -e "/sys/bus/pci/devices/$EDU_BDF/driver" &&
+    echo "OK: EDU is unbound"
+```
+
+Expected results:
+
+- The ID is `1234:11e8`.
+- BAR0 is a 1 MiB memory resource.
+- EDU has no bound driver before `insmod`.
+
+The BDF, such as `0000:00:03.0`, can change. Find it from the PCI ID rather
+than hard-coding it.
+
+## 7. Load and inspect the driver
+
+Still in the **guest**, verify the kernel match:
+
+```sh
+uname -r
+modinfo -F vermagic /tmp/edu_pci.ko
+```
+
+The start of vermagic must equal `uname -r`.
+
+Load the module and read its results:
+
+```sh
+sudo insmod /tmp/edu_pci.ko
+
+sudo dmesg |
+    grep -E 'edu_pci.*(probe:|identification:|liveness:|factorial:)' |
+    tail -n 4
+```
+
+The four log lines prove PCI matching, BAR0 MMIO access, and factorial command
+completion. Check the live state separately:
+
+```sh
+readlink "/sys/bus/pci/devices/$EDU_BDF/driver"
+grep '^edu_pci ' /proc/modules
+sudo grep -F 'edu_pci' /proc/iomem
+```
+
+Expected results:
+
+- The driver link ends in `/bus/pci/drivers/edu_pci`.
+- `/proc/modules` contains a live `edu_pci` entry.
+- `/proc/iomem` shows BAR0 owned by `edu_pci`.
+
+If `insmod` fails, inspect the latest messages:
+
+```sh
+sudo dmesg | grep -E 'edu_pci|probe with driver' | tail -n 20
+```
+
+Common meanings:
+
+- `invalid module format`: guest kernel and module vermagic differ.
+- BAR request failure: another owner holds the resource.
+- liveness mismatch: the MMIO write/read path did not behave as expected.
+- factorial timeout: the device did not finish before the driver's deadline.
+
+## 8. Unload and verify cleanup
+
+Run in the **guest**:
+
+```sh
+sudo rmmod edu_pci
+
+sudo dmesg | grep -E 'edu_pci.*remove:' | tail -n 1
+
+test ! -e "/sys/bus/pci/devices/$EDU_BDF/driver" &&
+    echo "OK: driver unbound"
+
+grep '^edu_pci ' /proc/modules ||
+    echo "OK: module removed"
+
+sudo grep -F 'edu_pci' /proc/iomem ||
+    echo "OK: BAR0 region released"
+```
+
+All three `OK` messages are required. They show that the driver reversed its
+setup and left no binding or BAR0 ownership behind.
+
+## 9. Repeat after changing the driver
+
+For each driver change:
+
+1. Run `rmmod` and confirm cleanup in the guest.
+2. Edit `driver/edu/edu_pci.c` on the Mac.
+3. Repeat the Docker compile command.
+4. Repeat SCP, `insmod`, log inspection, and cleanup.
+
+Before adding a new EDU feature, identify its register or function, the order
+of driver operations, and the result that will prove success. The next learning
+step is interrupt handling after the current polling flow is familiar.
+
+## 10. Stop QEMU
+
+Exit the guest shell and stop the VM from the Mac:
+
+```sh
+exit
+scripts/macos/phase0/stop-vm.sh
+```
+
+The stop script requests a normal guest shutdown and checks the writable disk.
+The expected final message from `qemu-img check` is:
+
+```text
+No errors were found on the image.
+```
