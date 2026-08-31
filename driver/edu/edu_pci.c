@@ -37,18 +37,18 @@ struct edu_device {
 
 static irqreturn_t edu_irq_handler(int irq, void *data)
 {
-	struct pci_dev *pdev = data;
-	void __iomem *bar0 = pci_get_drvdata(pdev);
+	struct edu_device *edu = data;
+	struct pci_dev *pdev = edu->pdev;
 	u32 pending;
 	u32 remain;
 
-	pending = readl(bar0 + EDU_REG_IRQ_STATUS);
+	pending = readl(edu->bar0 + EDU_REG_IRQ_STATUS);
 	if (!pending)
 		return IRQ_NONE;
 
-	writel(pending, bar0 + EDU_REG_IRQ_ACK);
+	writel(pending, edu->bar0 + EDU_REG_IRQ_ACK);
 
-	remain = readl(bar0 + EDU_REG_IRQ_STATUS);
+	remain = readl(edu->bar0 + EDU_REG_IRQ_STATUS);
 	dev_info(&pdev->dev,
 		 "irq: BDF=%s, irq=%d, pending=0x%08x remaining=0x%08x\n",
 		 pci_name(pdev), irq, pending, remain);
@@ -97,6 +97,8 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_release_region;
 	}
 
+	edu->bar0 = bar0;
+
 	edu_id = readl(bar0 + EDU_REG_ID);
 	dev_info(&pdev->dev, "identification: 0x%08x\n", edu_id);
 
@@ -137,7 +139,7 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iounmap;
 	}
 
-	pci_set_drvdata(pdev, bar0);
+	pci_set_drvdata(pdev, edu);
 
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_INTX);
 	if (ret < 0) {
@@ -153,8 +155,10 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_free_irq_vectors;
 	}
 
+	edu->irq = irq;
+
 	ret = request_irq(irq, edu_irq_handler, IRQF_SHARED, "edu_pci_irq",
-			  pdev);
+			  edu);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to request IRQ %d: %d\n", irq, ret);
 		goto err_free_irq_vectors;
@@ -178,11 +182,12 @@ err_disable_device:
 
 static void edu_remove(struct pci_dev *pdev)
 {
-	void __iomem *bar0 = pci_get_drvdata(pdev);
+	struct edu_device *edu = pci_get_drvdata(pdev);
+	void __iomem *bar0 = edu->bar0;
 
 	dev_info(&pdev->dev, "remove: BDF=%s\n", pci_name(pdev));
 
-	free_irq(pci_irq_vector(pdev, 0), pdev);
+	free_irq(edu->irq, edu);
 	pci_free_irq_vectors(pdev);
 
 	pci_set_drvdata(pdev, NULL);
