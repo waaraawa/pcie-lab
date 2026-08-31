@@ -213,6 +213,19 @@ EDU는 QEMU에서 conventional PCI endpoint로 제공된다. PCIe와 공통인 L
 - INTx를 먼저 확인하고 MSI로 전환
 - 동시성과 메모리 배리어 기초
 
+Current WSL progress:
+
+- A one-shot write to interrupt-raise offset `0x60` verified INTx routing,
+  shared-handler registration, cause readback, acknowledgement, and clean
+  teardown.
+- The driver now registers the handler before starting factorial, enables
+  status bit `0x80`, waits on a completion instead of polling, acknowledges
+  factorial cause `0x1`, and reads `5! = 120` after the ISR wakes the probe.
+- Linux 6.12.101 build, initramfs identity, one delivered IRQ without a storm,
+  and unload cleanup passed on Windows/WSL.
+- Controlled timeout injection, MSI comparison, and Intel macOS IRQ parity
+  remain.
+
 완료 조건:
 
 - EDU가 발생시킨 인터럽트를 ISR에서 확인하고 정상적으로 acknowledge한다.

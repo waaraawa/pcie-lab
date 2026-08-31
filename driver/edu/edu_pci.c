@@ -1,9 +1,9 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/io.h>
-#include <linux/iopoll.h>
 #include <linux/interrupt.h>
 #include <linux/completion.h>
+#include <linux/jiffies.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -19,14 +19,14 @@
 #define EDU_LIVENESS_TEST 0x12345678U
 
 #define EDU_STATUS_COMPUTING 0x01U
+#define EDU_STATUS_IRQFACT 0x80U
 
 #define EDU_FACTORIAL_INPUT 5U
 #define EDU_FACTORIAL_EXPECTED 120U
 
-#define EDU_IRQ_TEST 0x01U
+#define EDU_IRQ_FACTORIAL 0x01U
 
-#define EDU_POLL_DELAY_US 10
-#define EDU_POLL_TIMEOUT_US (1000 * 1000)
+#define EDU_FACTORIAL_TIMEOUT_MS 1000
 
 struct edu_device {
 	struct pci_dev *pdev;
@@ -34,6 +34,14 @@ struct edu_device {
 	struct completion factorial_done;
 	int irq;
 };
+
+static void edu_disable_factorial_irq(struct edu_device *edu)
+{
+	writel(0, edu->bar0 + EDU_REG_STATUS);
+	writel(EDU_IRQ_FACTORIAL, edu->bar0 + EDU_REG_IRQ_ACK);
+
+	readl(edu->bar0 + EDU_REG_IRQ_STATUS);
+}
 
 static irqreturn_t edu_irq_handler(int irq, void *data)
 {
@@ -53,6 +61,9 @@ static irqreturn_t edu_irq_handler(int irq, void *data)
 		 "irq: BDF=%s, irq=%d, pending=0x%08x remaining=0x%08x\n",
 		 pci_name(pdev), irq, pending, remain);
 
+	if (pending & EDU_IRQ_FACTORIAL)
+		complete(&edu->factorial_done);
+
 	return IRQ_HANDLED;
 }
 
@@ -66,6 +77,7 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	u32 factorial;
 	int irq;
 	struct edu_device *edu;
+	unsigned long timeout;
 
 	edu = devm_kzalloc(&pdev->dev, sizeof(*edu), GFP_KERNEL);
 	if (!edu)
@@ -117,28 +129,6 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iounmap;
 	}
 
-	writel(EDU_FACTORIAL_INPUT, bar0 + EDU_REG_FACTORIAL);
-
-	ret = readl_poll_timeout(bar0 + EDU_REG_STATUS, status,
-				 !(status & EDU_STATUS_COMPUTING),
-				 EDU_POLL_DELAY_US, EDU_POLL_TIMEOUT_US);
-	if (ret) {
-		dev_err(&pdev->dev, "factorial timeout: status=0x%08x\n",
-			status);
-		goto err_iounmap;
-	}
-
-	factorial = readl(bar0 + EDU_REG_FACTORIAL);
-	dev_info(&pdev->dev, "factorial: %u! = %u\n", EDU_FACTORIAL_INPUT,
-		 factorial);
-
-	if (factorial != EDU_FACTORIAL_EXPECTED) {
-		dev_err(&pdev->dev, "factorial mismatch: expected=%u read=%u\n",
-			EDU_FACTORIAL_EXPECTED, factorial);
-		ret = -EIO;
-		goto err_iounmap;
-	}
-
 	pci_set_drvdata(pdev, edu);
 
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_INTX);
@@ -164,9 +154,38 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_free_irq_vectors;
 	}
 
-	writel(EDU_IRQ_TEST, bar0 + EDU_REG_IRQ_RAISE);
+	timeout = msecs_to_jiffies(EDU_FACTORIAL_TIMEOUT_MS);
+	reinit_completion(&edu->factorial_done);
+
+	writel(EDU_STATUS_IRQFACT, bar0 + EDU_REG_STATUS);
+	writel(EDU_FACTORIAL_INPUT, bar0 + EDU_REG_FACTORIAL);
+
+	if (!wait_for_completion_timeout(&edu->factorial_done, timeout)) {
+		status = readl(bar0 + EDU_REG_STATUS);
+		dev_err(&pdev->dev, "factorial timeout: status=0x%08x\n",
+			status);
+
+		ret = -ETIMEDOUT;
+		goto err_free_irq;
+	}
+
+	factorial = readl(bar0 + EDU_REG_FACTORIAL);
+	dev_info(&pdev->dev, "factorial: %u! = %u\n", EDU_FACTORIAL_INPUT,
+		 factorial);
+
+	if (factorial != EDU_FACTORIAL_EXPECTED) {
+		dev_err(&pdev->dev, "factorial mismatch: expected=%u read=%u\n",
+			EDU_FACTORIAL_EXPECTED, factorial);
+		ret = -EIO;
+		goto err_free_irq;
+	}
+
+	edu_disable_factorial_irq(edu);
 	return 0;
 
+err_free_irq:
+	edu_disable_factorial_irq(edu);
+	free_irq(edu->irq, edu);
 err_free_irq_vectors:
 	pci_free_irq_vectors(pdev);
 err_clear_drvdata:
@@ -187,6 +206,7 @@ static void edu_remove(struct pci_dev *pdev)
 
 	dev_info(&pdev->dev, "remove: BDF=%s\n", pci_name(pdev));
 
+	edu_disable_factorial_irq(edu);
 	free_irq(edu->irq, edu);
 	pci_free_irq_vectors(pdev);
 

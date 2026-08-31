@@ -100,24 +100,29 @@ LDD3는 PCI 개념과 수명주기를 이해하는 참고 자료로 사용한다
 - factorial `5! = 120`을 읽는다.
 - timeout과 결과 불일치 시 probe가 안전하게 실패하고 자원을 반환한다.
 
-### 4. Interrupt/IRQ — 다음 단계
+### 4. Interrupt/IRQ — in progress
 
-목표:
+Goal:
 
-- CPU가 register를 반복해서 읽지 않아도 장치가 완료를 알리게 한다.
-- IRQ handler에서 interrupt 원인을 확인하고 acknowledge한다.
+- Let the device report completion without repeated CPU register reads.
+- Identify and acknowledge the device-local cause in the shared handler.
 
-진행 순서:
+Verified on Windows/WSL:
 
-1. 독립적인 test interrupt를 raise한다.
-2. handler가 status를 읽고 acknowledge하게 한다.
-3. factorial 완료를 polling 대신 interrupt로 기다린다.
+1. A one-shot write to interrupt-raise offset `0x60` exercised the INTx path.
+2. The handler read cause `0x1`, acknowledged it, and observed zero remaining
+   causes without an interrupt storm.
+3. Factorial now enables status bit `0x80` and waits on a kernel completion.
+4. The device-generated IRQ wakes probe, which reads `5! = 120` from offset
+   `0x08`.
+5. Failure and remove paths disable the producer, acknowledge pending cause,
+   and release the handler and vector before BAR0 teardown.
 
-정상 조건:
+Remaining work:
 
-- IRQ handler log가 한 번 출력된다.
-- acknowledge 후 interrupt가 반복 발생하지 않는다.
-- unload 후 handler와 IRQ vector가 안전하게 해제된다.
+- Exercise a controlled factorial timeout/error path.
+- Compare INTx with MSI.
+- Repeat the IRQ milestone on Intel macOS and satisfy the cross-host gate.
 
 ### 5. DMA — 예정
 
@@ -161,13 +166,13 @@ PCI binding, BAR, MMIO, IRQ, DMA와 사용자 interface라는 큰 구조는 동�
 ## 현재 위치
 
 ```text
-[완료] binding
-   -> [완료] BAR/MMIO
-   -> [완료] liveness/factorial polling
-   -> [다음] IRQ
-   -> [예정] DMA
-   -> [예정] /dev/edu0 + ioctl
-   -> [예정] 실제 driver 수준 정리
+[complete] binding
+   -> [complete] BAR/MMIO
+   -> [complete] liveness/factorial polling
+   -> [in progress] IRQ: WSL INTx verified; MSI and Mac parity remain
+   -> [planned] DMA
+   -> [planned] /dev/edu0 + ioctl
+   -> [planned] production-style driver cleanup
 ```
 
 코드를 추가하기 전에 매 단계에서 먼저 다음 세 가지를 확인한다.

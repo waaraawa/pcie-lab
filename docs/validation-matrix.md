@@ -27,7 +27,9 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | BAR0 ownership/MMIO mapping | Verified | User-verified | Runtime parity verified; common test pending |
 | Identification/liveness | Verified: `0x010000ed` and inversion | User-verified | Runtime parity verified; common test pending |
 | Factorial polling | Verified: `5! = 120` | User-verified: `5! = 120` | Runtime parity verified; common test pending |
-| INTx/MSI | Pending | Pending | Pending |
+| One-shot INTx raise/status/ack | Pending | User-verified: one IRQ on Linux IRQ 23, cause `0x1` acknowledged to zero, clean unload | Pending cross-host parity |
+| Factorial completion via INTx | Pending | User-verified: handler precedes `5! = 120`, one IRQ, clean unload | Pending cross-host parity |
+| MSI | Pending | Pending | Pending |
 | Bidirectional DMA | Pending | Pending | Pending |
 | User-space validation | Pending | Pending | Pending |
 | Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs recheck passed on 2026-08-25 | Host-local only |
@@ -45,7 +47,7 @@ cross-host complete:
    limitations.
 5. A smoke-test module result is not treated as EDU feature validation.
 
-The canonical EDU driver now produces matching manual runtime behavior through
-factorial polling on both hosts. Those rows remain short of the formal
-cross-host completion gate until a shared guest test records the same checks on
-both hosts.
+The canonical EDU driver produces matching manual runtime behavior through
+factorial polling on both hosts. Windows/WSL additionally verifies one-shot INTx
+and interrupt-driven factorial completion. IRQ remains short of the formal
+cross-host gate until the same source and shared guest test pass on Intel macOS.

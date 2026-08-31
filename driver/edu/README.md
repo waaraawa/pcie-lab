@@ -72,21 +72,25 @@ The EDU-local DMA buffer is 4096 bytes at BAR0 offset `0x40000`; it is memory,
 not another control register. DMA completion with command bit `0x04` raises
 interrupt cause `0x100`.
 
-## Factorial register check
+## Factorial interrupt check
 
-The probe writes `5` to EDU's factorial register at BAR0 offset `0x08`, polls
-the computing bit at offset `0x20`, and then reads the result from `0x08`.
-Successful guest output includes:
+The probe registers an INTx handler, enables status bit `0x80`, writes `5` to
+the factorial register at BAR0 offset `0x08`, and sleeps on a kernel completion.
+EDU replaces the input with `120`, raises interrupt cause `0x1`, and the handler
+acknowledges that cause before waking the probe. Successful guest output keeps
+the IRQ line before the factorial result:
 
 ```text
+edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000001 remaining=0x00000000
 edu_pci 0000:00:03.0: factorial: 5! = 120
 ```
 
-After the check, unload the module and verify that the driver released its BAR0
-region and module entry:
+After the check, unload the module and verify that the driver released its IRQ
+action, BAR0 region, and module entry:
 
 ```sh
 rmmod edu_pci
+grep -F 'edu_pci_irq' /proc/interrupts || echo "OK: IRQ handler removed"
 grep -F 'edu_pci' /proc/iomem || echo "OK: BAR0 region released"
 grep '^edu_pci ' /proc/modules || echo "OK: module removed"
 ```
