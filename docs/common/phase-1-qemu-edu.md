@@ -117,10 +117,12 @@ Verified on Windows/WSL:
    `0x08`.
 5. Failure and remove paths disable the producer, acknowledge pending cause,
    and release the handler and vector before BAR0 teardown.
+6. `force_factorial_timeout=1` skips the factorial start and produces a
+   deterministic completion timeout. Probe returns `-110`; the device remains
+   unbound and status, pending IRQ, handler, and BAR ownership are cleared.
 
 Remaining work:
 
-- Exercise a controlled factorial timeout/error path.
 - Compare INTx with MSI.
 - Repeat the IRQ milestone on Intel macOS and satisfy the cross-host gate.
 

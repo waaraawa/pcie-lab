@@ -223,8 +223,10 @@ Current WSL progress:
   factorial cause `0x1`, and reads `5! = 120` after the ISR wakes the probe.
 - Linux 6.12.101 build, initramfs identity, one delivered IRQ without a storm,
   and unload cleanup passed on Windows/WSL.
-- Controlled timeout injection, MSI comparison, and Intel macOS IRQ parity
-  remain.
+- A read-only module parameter skipped factorial start and deterministically
+  produced completion timeout `-110`. Probe cleanup removed binding, IRQ action,
+  and BAR0 ownership and cleared status and pending IRQ registers to zero.
+- MSI comparison and Intel macOS IRQ parity remain.
 
 완료 조건:
 

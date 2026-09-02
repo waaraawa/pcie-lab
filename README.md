@@ -5,8 +5,8 @@ Linux에서 시작해 QEMU PCI 장치, 실제 PCIe 하드웨어, Windows KMDF까
 
 The canonical implementation is the QEMU EDU Linux driver under `driver/edu/`.
 Windows/WSL has verified binding, BAR0/MMIO, identification, liveness, one-shot
-INTx, and interrupt-driven factorial completion. MSI, DMA, and cross-host IRQ
-parity remain.
+INTx, interrupt-driven factorial completion, and controlled timeout cleanup.
+MSI, DMA, and cross-host IRQ parity remain.
 
 ## 학습 순서
 

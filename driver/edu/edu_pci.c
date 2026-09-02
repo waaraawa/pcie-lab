@@ -35,6 +35,11 @@ struct edu_device {
 	int irq;
 };
 
+static bool force_factorial_timeout;
+module_param(force_factorial_timeout, bool, 0444);
+MODULE_PARM_DESC(force_factorial_timeout,
+		 "skip factorial start to exercise timeout cleanup");
+
 static void edu_disable_factorial_irq(struct edu_device *edu)
 {
 	writel(0, edu->bar0 + EDU_REG_STATUS);
@@ -158,7 +163,11 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	reinit_completion(&edu->factorial_done);
 
 	writel(EDU_STATUS_IRQFACT, bar0 + EDU_REG_STATUS);
-	writel(EDU_FACTORIAL_INPUT, bar0 + EDU_REG_FACTORIAL);
+
+	if (force_factorial_timeout)
+		dev_info(&pdev->dev, "forcing factorial timeout\n");
+	else
+		writel(EDU_FACTORIAL_INPUT, bar0 + EDU_REG_FACTORIAL);
 
 	if (!wait_for_completion_timeout(&edu->factorial_done, timeout)) {
 		status = readl(bar0 + EDU_REG_STATUS);

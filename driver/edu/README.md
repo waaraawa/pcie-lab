@@ -94,3 +94,20 @@ grep -F 'edu_pci_irq' /proc/interrupts || echo "OK: IRQ handler removed"
 grep -F 'edu_pci' /proc/iomem || echo "OK: BAR0 region released"
 grep '^edu_pci ' /proc/modules || echo "OK: module removed"
 ```
+
+## Factorial timeout fault injection
+
+The read-only `force_factorial_timeout` module parameter skips the factorial
+start while leaving its completion IRQ enabled. This deterministically exercises
+the one-second completion timeout and probe cleanup:
+
+```sh
+insmod /lib/modules/6.12.101/extra/edu_pci.ko \
+    force_factorial_timeout=1
+```
+
+Expected output includes `forcing factorial timeout`, status `0x00000080`, and
+probe error `-110`. PCI driver registration still succeeds, so `insmod` can
+return zero and the module can remain loaded even though the EDU device is not
+bound. The IRQ action and BAR0 owner must already be absent; remove the
+unbound module with `rmmod edu_pci` after checking them.
