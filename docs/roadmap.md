@@ -226,7 +226,15 @@ Current WSL progress:
 - A read-only module parameter skipped factorial start and deterministically
   produced completion timeout `-110`. Probe cleanup removed binding, IRQ action,
   and BAR0 ownership and cleared status and pending IRQ registers to zero.
-- MSI comparison and Intel macOS IRQ parity remain.
+- A read-only `use_msi` parameter selects a single non-shared MSI vector. The
+  first runtime attempt exposed a missing Bus Master Enable; after pairing
+  `pci_set_master()` with cleanup, factorial completion arrived once on MSI IRQ
+  28 and unload removed the vector, BAR owner, module, Bus Master Enable, and
+  INTx Disable state.
+- Combined MSI and forced-timeout testing also returned EDU status and pending
+  cause to zero and released the MSI action, BAR owner, and PCI Command state
+  before the unbound module was removed.
+- Intel macOS IRQ parity remains.
 
 완료 조건:
 

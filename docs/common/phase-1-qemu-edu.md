@@ -120,10 +120,22 @@ Verified on Windows/WSL:
 6. `force_factorial_timeout=1` skips the factorial start and produces a
    deterministic completion timeout. Probe returns `-110`; the device remains
    unbound and status, pending IRQ, handler, and BAR ownership are cleared.
+7. `use_msi=1` selects one non-shared MSI vector; WSL/QEMU delivered factorial
+   completion on Linux IRQ 28 and `/proc/interrupts` identified `PCI-MSI`.
+8. MSI required PCI Bus Master Enable because the message is a device-initiated
+   memory write. The driver now pairs `pci_set_master()` with
+   `pci_clear_master()` on failure and remove paths.
+9. PCI Command changed from `0x0107` while INTx was bound to `0x0507` while MSI
+   was bound, showing both Bus Master Enable (`0x0004`) and INTx Disable
+   (`0x0400`). MSI unload restored `0x0103` and removed the IRQ, BAR owner, and
+   module entry.
+10. Combined `use_msi=1 force_factorial_timeout=1` verification timed out as
+    designed, then removed the MSI action and BAR owner, restored PCI Command
+    to `0x0103`, and cleared EDU status and pending cause to zero before the
+    unbound module was removed.
 
 Remaining work:
 
-- Compare INTx with MSI.
 - Repeat the IRQ milestone on Intel macOS and satisfy the cross-host gate.
 
 ### 5. DMA — 예정
@@ -171,7 +183,7 @@ PCI binding, BAR, MMIO, IRQ, DMA와 사용자 interface라는 큰 구조는 동�
 [complete] binding
    -> [complete] BAR/MMIO
    -> [complete] liveness/factorial polling
-   -> [in progress] IRQ: WSL INTx verified; MSI and Mac parity remain
+   -> [in progress] IRQ: WSL INTx and MSI verified; Mac parity remains
    -> [planned] DMA
    -> [planned] /dev/edu0 + ioctl
    -> [planned] production-style driver cleanup

@@ -40,6 +40,10 @@ module_param(force_factorial_timeout, bool, 0444);
 MODULE_PARM_DESC(force_factorial_timeout,
 		 "skip factorial start to exercise timeout cleanup");
 
+static bool use_msi;
+module_param(use_msi, bool, 0444);
+MODULE_PARM_DESC(use_msi, "use MSI instead of legacy INTx");
+
 static void edu_disable_factorial_irq(struct edu_device *edu)
 {
 	writel(0, edu->bar0 + EDU_REG_STATUS);
@@ -83,6 +87,9 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	int irq;
 	struct edu_device *edu;
 	unsigned long timeout;
+	unsigned int pci_irq_flags;
+	unsigned long request_irq_flags;
+	const char *irq_mode;
 
 	edu = devm_kzalloc(&pdev->dev, sizeof(*edu), GFP_KERNEL);
 	if (!edu)
@@ -134,12 +141,18 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iounmap;
 	}
 
+	pci_set_master(pdev);
+
+	pci_irq_flags = use_msi ? PCI_IRQ_MSI : PCI_IRQ_INTX;
+	request_irq_flags = use_msi ? 0 : IRQF_SHARED;
+	irq_mode = use_msi ? "MSI" : "INTx";
+
 	pci_set_drvdata(pdev, edu);
 
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_INTX);
+	ret = pci_alloc_irq_vectors(pdev, 1, 1, pci_irq_flags);
 	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to allocate INTx vector: %d\n",
-			ret);
+		dev_err(&pdev->dev, "failed to allocate %s vector: %d\n",
+			irq_mode, ret);
 		goto err_clear_drvdata;
 	}
 
@@ -152,12 +165,14 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	edu->irq = irq;
 
-	ret = request_irq(irq, edu_irq_handler, IRQF_SHARED, "edu_pci_irq",
-			  edu);
+	ret = request_irq(irq, edu_irq_handler, request_irq_flags,
+			  "edu_pci_irq", edu);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to request IRQ %d: %d\n", irq, ret);
 		goto err_free_irq_vectors;
 	}
+
+	dev_info(&pdev->dev, "interrupt mode: %s, irq=%d\n", irq_mode, irq);
 
 	timeout = msecs_to_jiffies(EDU_FACTORIAL_TIMEOUT_MS);
 	reinit_completion(&edu->factorial_done);
@@ -199,6 +214,7 @@ err_free_irq_vectors:
 	pci_free_irq_vectors(pdev);
 err_clear_drvdata:
 	pci_set_drvdata(pdev, NULL);
+	pci_clear_master(pdev);
 err_iounmap:
 	pci_iounmap(pdev, bar0);
 err_release_region:
@@ -220,6 +236,7 @@ static void edu_remove(struct pci_dev *pdev)
 	pci_free_irq_vectors(pdev);
 
 	pci_set_drvdata(pdev, NULL);
+	pci_clear_master(pdev);
 
 	pci_iounmap(pdev, bar0);
 	pci_release_region(pdev, 0);

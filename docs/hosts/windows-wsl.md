@@ -598,6 +598,8 @@ echo "insmod exit=$?"
 insmod exit=0
 identification: 0x010000ed
 liveness: wrote=0x12345678 read=0xedcba987
+interrupt mode: INTx
+pending=0x00000001 remaining=0x00000000
 factorial: 5! = 120
 ```
 
@@ -622,7 +624,37 @@ dmesg |
 - `/proc/iomem`에 BAR0 owner `edu_pci`가 보인다.
 - `failed` log가 없다.
 
-### 10.3 Module unload와 cleanup 확인
+### 10.3 Compare MSI with INTx
+
+First unload the default INTx instance, then select MSI with the read-only
+module parameter:
+
+```sh
+rmmod edu_pci
+insmod /lib/modules/6.12.101/extra/edu_pci.ko use_msi=1
+echo "insmod exit=$?"
+
+cat /sys/module/edu_pci/parameters/use_msi
+grep -F 'edu_pci_irq' /proc/interrupts
+od -An -tx2 -j 4 -N 2 "$EDU/config"
+```
+
+Success requires all of the following observations:
+
+- the driver log reports `interrupt mode: MSI` and no timeout;
+- the ISR acknowledges cause `0x1` to zero before factorial result 120;
+- the parameter reads `Y`;
+- `/proc/interrupts` identifies one `PCI-MSI` delivery;
+- PCI Command bit `0x0004` (Bus Master Enable) is set;
+- PCI Command bit `0x0400` (INTx Disable) is normally also set while MSI is
+  active.
+
+Do not require one exact full PCI Command value because firmware and platform
+bits can differ. The WSL/QEMU reference run changed from `0x0107` in INTx mode
+to `0x0507` in MSI mode. Keep `-tx2` in the `od` command: without it, `od`
+prints octal by default.
+
+### 10.4 Module unload and cleanup check
 
 ```sh
 rmmod edu_pci
@@ -864,8 +896,11 @@ guest 명령 실행에는 지장이 없다.
 - [ ] QEMU EDU `1234:11e8` 발견
 - [ ] binding과 BAR0 owner 확인
 - [ ] identification, liveness와 factorial 확인
+- [ ] Verify the INTx factorial IRQ and acknowledgement
+- [ ] Verify the MSI factorial IRQ, Bus Master Enable, and INTx Disable
 - [ ] unload 후 binding/module/BAR0 cleanup 확인
 - [ ] 필요 시 GDB `start_kernel` breakpoint 확인
 
-모든 항목을 통과하면 기존 factorial polling 단계까지의 WSL 환경과 driver
-복습이 완료된 것이다. 다음 학습 단계는 EDU interrupt/IRQ다.
+Completing every item reproduces the current WSL environment and EDU driver
+through interrupt-driven factorial completion in both INTx and MSI modes. DMA
+is the next device-data-path stage.

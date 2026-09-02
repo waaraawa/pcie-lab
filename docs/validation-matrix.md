@@ -30,7 +30,7 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | One-shot INTx raise/status/ack | Pending | User-verified: one IRQ on Linux IRQ 23, cause `0x1` acknowledged to zero, clean unload | Pending cross-host parity |
 | Factorial completion via INTx | Pending | User-verified: handler precedes `5! = 120`, one IRQ, clean unload | Pending cross-host parity |
 | Factorial completion timeout cleanup | Pending | User-verified: forced timeout `-110`, no binding/IRQ/BAR owner, status and pending cause zero | Pending cross-host parity |
-| MSI | Pending | Pending | Pending |
+| MSI | Pending | User-verified: one factorial MSI on Linux IRQ 28, cause `0x1` acknowledged to zero, bus-master and INTx-disable lifecycle observed, normal and forced-timeout cleanup passed | Pending cross-host parity |
 | Bidirectional DMA | Pending | Pending | Pending |
 | User-space validation | Pending | Pending | Pending |
 | Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs recheck passed on 2026-08-25 | Host-local only |
@@ -50,6 +50,7 @@ cross-host complete:
 
 The canonical EDU driver produces matching manual runtime behavior through
 factorial polling on both hosts. Windows/WSL additionally verifies one-shot
-INTx, interrupt-driven factorial completion, and deterministic timeout cleanup.
-IRQ remains short of the formal cross-host gate until the same source and shared
+INTx, interrupt-driven factorial completion, deterministic timeout cleanup, and
+one-vector MSI completion with explicit bus-master setup and teardown. IRQ
+remains short of the formal cross-host gate until the same source and shared
 guest test pass on Intel macOS.

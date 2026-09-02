@@ -74,11 +74,13 @@ interrupt cause `0x100`.
 
 ## Factorial interrupt check
 
-The probe registers an INTx handler, enables status bit `0x80`, writes `5` to
-the factorial register at BAR0 offset `0x08`, and sleeps on a kernel completion.
-EDU replaces the input with `120`, raises interrupt cause `0x1`, and the handler
-acknowledges that cause before waking the probe. Successful guest output keeps
-the IRQ line before the factorial result:
+By default, probe registers a shared INTx handler. The `use_msi=1` module
+parameter selects one MSI vector and registers a non-shared handler instead.
+Both modes enable status bit `0x80`, write `5` to the factorial register at BAR0
+offset `0x08`, and sleep on a kernel completion. EDU replaces the input with
+`120`, raises interrupt cause `0x1`, and the handler acknowledges that cause
+before waking probe. Successful guest output keeps the IRQ line before the
+factorial result:
 
 ```text
 edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000001 remaining=0x00000000
@@ -94,6 +96,34 @@ grep -F 'edu_pci_irq' /proc/interrupts || echo "OK: IRQ handler removed"
 grep -F 'edu_pci' /proc/iomem || echo "OK: BAR0 region released"
 grep '^edu_pci ' /proc/modules || echo "OK: module removed"
 ```
+
+## MSI comparison
+
+MSI is a device-initiated memory write, so the driver calls
+`pci_set_master()` before it allocates an interrupt vector. All later probe
+failures and normal remove pair that call with `pci_clear_master()`.
+
+Load the MSI mode in the guest:
+
+```sh
+insmod /lib/modules/6.12.101/extra/edu_pci.ko use_msi=1
+echo "insmod exit=$?"
+cat /sys/module/edu_pci/parameters/use_msi
+grep -F 'edu_pci_irq' /proc/interrupts
+od -An -tx2 -j 4 -N 2 /sys/bus/pci/devices/0000:00:03.0/config
+```
+
+The log must report `interrupt mode: MSI`, an ISR line with cause `0x1`
+acknowledged to zero, factorial result 120, and no timeout. The parameter must
+read `Y`; `/proc/interrupts` must identify a `PCI-MSI` vector with one delivery.
+PCI Command bit `0x0004` must be set while bound. Linux normally also sets bit
+`0x0400` to disable the unused legacy INTx path; compare bits rather than
+requiring one exact full register value.
+
+After `rmmod edu_pci`, the IRQ action, BAR0 owner, and module entry must be
+absent. PCI Command bits `0x0004` and `0x0400` must also be clear. Keep `-tx2`
+in the `od` command when a hexadecimal result is required; plain `od` defaults
+to octal output.
 
 ## Factorial timeout fault injection
 
@@ -111,3 +141,16 @@ probe error `-110`. PCI driver registration still succeeds, so `insmod` can
 return zero and the module can remain loaded even though the EDU device is not
 bound. The IRQ action and BAR0 owner must already be absent; remove the
 unbound module with `rmmod edu_pci` after checking them.
+
+The same failure path can be exercised after MSI and Bus Master Enable setup:
+
+```sh
+insmod /lib/modules/6.12.101/extra/edu_pci.ko \
+    use_msi=1 force_factorial_timeout=1
+```
+
+After timeout, the device must be unbound, the MSI action and BAR0 owner must
+be absent, PCI Command bits `0x0004` and `0x0400` must be clear, and direct
+reads of EDU status `0x20` and pending cause `0x24` must both return zero. The
+module remains loaded until `rmmod edu_pci` because driver registration itself
+succeeded.
