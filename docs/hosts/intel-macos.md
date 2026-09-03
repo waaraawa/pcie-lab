@@ -66,7 +66,7 @@ If Docker cannot connect to its daemon, start Docker Desktop first.
 Load the Mac lab configuration:
 
 ```sh
-. scripts/macos/phase0/config.sh
+. scripts/macos/phase1/config.sh
 ```
 
 The first run needs an Ubuntu image, writable disk, cloud-init data, and a
@@ -74,7 +74,7 @@ guest login key. The preparation script creates these host-local artifacts
 under `/private/tmp/pcie-phase0` and verifies the downloaded image:
 
 ```sh
-scripts/macos/phase0/prepare-vm.sh
+scripts/macos/phase1/prepare-vm.sh
 ```
 
 This is environment preparation, not part of the PCIe driver exercise. The
@@ -83,9 +83,13 @@ artifacts are reused on later runs and must not be committed.
 Start QEMU and wait for Ubuntu:
 
 ```sh
-scripts/macos/phase0/start-vm.sh
-scripts/macos/phase0/wait-for-guest.sh
+scripts/macos/phase1/start-vm.sh
+scripts/macos/phase1/wait-for-guest.sh
 ```
+
+The Phase 1 start command delegates to the existing Phase 0 QEMU/HVF launcher;
+there is only one VM definition. It starts the Ubuntu disk with the EDU device
+and leaves module transfer and loading as separate manual lab steps.
 
 The wait command checks three things:
 
@@ -105,6 +109,26 @@ tail -n 30 "$PCIE_SERIAL_LOG"
 The module must be built against the same kernel release as the Ubuntu guest.
 Docker supplies the matching Linux build environment; it does not run the
 driver.
+
+After learning the expanded commands below, the repeatable Phase 1 entry point
+is:
+
+```sh
+. scripts/macos/phase1/config.sh
+scripts/macos/phase1/build-module.sh
+```
+
+It compiles the canonical `driver/edu/edu_pci.c`, places `edu_pci.ko` under the
+host-local module output directory, and verifies the kernel release and EDU PCI
+alias. The similarly named `scripts/macos/phase0/build-module.sh` builds only
+the `phase0_sanity.ko` environment-check module and must not be used for EDU
+driver changes.
+
+The build script loads the Phase 1 configuration itself. Source it explicitly
+as shown when subsequent host commands, including SCP, need the exported module
+path and guest SSH settings. `phase1/config.sh` delegates to the existing Mac
+configuration, so the Phase 0 and Phase 1 workflows cannot drift to different
+kernel releases, VM paths, or ports.
 
 Build the reusable builder image:
 
@@ -154,7 +178,14 @@ not be loaded. A skipped-BTF message is expected in this build environment.
 
 ## 5. Copy the module and enter Ubuntu
 
-Copy only the built module into the guest:
+Copy only the built module into the guest through the Phase 1 entry point:
+
+```sh
+scripts/macos/phase1/copy-module.sh
+```
+
+It verifies that the host module and SSH key exist, then copies the artifact to
+`/tmp/edu_pci.ko`. The equivalent expanded SCP command is:
 
 ```sh
 scp \
@@ -166,7 +197,14 @@ scp \
     "$PCIE_GUEST_USER@127.0.0.1:/tmp/edu_pci.ko"
 ```
 
-Open the guest shell:
+Open the guest shell through the Phase 1 entry point:
+
+```sh
+scripts/macos/phase1/connect-guest.sh
+```
+
+It uses the configured key, loopback port, and guest user. The equivalent
+expanded SSH command is:
 
 ```sh
 ssh \
@@ -290,7 +328,7 @@ For each driver change:
 
 Before adding a new EDU feature, identify its register or function, the order
 of driver operations, and the result that will prove success. The next learning
-step is interrupt handling after the current polling flow is familiar.
+step is the polling-based DMA round trip after the interrupt flow is familiar.
 
 ## 10. Stop QEMU
 
@@ -298,7 +336,7 @@ Exit the guest shell and stop the VM from the Mac:
 
 ```sh
 exit
-scripts/macos/phase0/stop-vm.sh
+scripts/macos/phase1/stop-vm.sh
 ```
 
 The stop script requests a normal guest shutdown and checks the writable disk.

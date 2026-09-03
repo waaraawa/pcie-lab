@@ -4,6 +4,7 @@
 #include <linux/interrupt.h>
 #include <linux/completion.h>
 #include <linux/jiffies.h>
+#include <linux/dma-mapping.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -27,6 +28,8 @@
 #define EDU_IRQ_FACTORIAL 0x01U
 
 #define EDU_FACTORIAL_TIMEOUT_MS 1000
+
+#define EDU_DMA_MASK_BITS 28
 
 struct edu_device {
 	struct pci_dev *pdev;
@@ -107,6 +110,16 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		dev_err(&pdev->dev, "failed to enable PCI device: %d\n", ret);
 		return ret;
 	}
+
+	ret = dma_set_mask_and_coherent(&pdev->dev,
+					DMA_BIT_MASK(EDU_DMA_MASK_BITS));
+	if (ret) {
+		dev_err(&pdev->dev, "failed to set %u-bit DMA mask: %d\n",
+			EDU_DMA_MASK_BITS, ret);
+		goto err_disable_device;
+	}
+
+	dev_info(&pdev->dev, "DMA mask: %u bits\n", EDU_DMA_MASK_BITS);
 
 	ret = pci_request_region(pdev, 0, "edu_pci");
 	if (ret) {
