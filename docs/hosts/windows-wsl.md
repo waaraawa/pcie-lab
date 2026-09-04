@@ -596,8 +596,10 @@ echo "insmod exit=$?"
 
 ```text
 insmod exit=0
+DMA mask: 28 bits
 identification: 0x010000ed
 liveness: wrote=0x12345678 read=0xedcba987
+DMA buffer: cpu=(ptrval) dma=<address-at-or-below-0x0fffffff> size=64
 interrupt mode: INTx
 pending=0x00000001 remaining=0x00000000
 factorial: 5! = 120
@@ -605,6 +607,9 @@ factorial: 5! = 120
 
 `out-of-tree module taints kernel`은 외부 실습 module에서 예상되는 정보다.
 초기 IRQ 11 log 뒤 ACPI가 IRQ 23을 enable할 수 있으며 현재 단계의 오류가 아니다.
+The CPU pointer may be displayed as `(ptrval)` because `%p` is restricted. The
+DMA address must be no greater than `0x0fffffff`; it is a device address and
+must not be dereferenced by the CPU.
 
 Load 상태 확인:
 

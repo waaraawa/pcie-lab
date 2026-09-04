@@ -30,10 +30,13 @@
 #define EDU_FACTORIAL_TIMEOUT_MS 1000
 
 #define EDU_DMA_MASK_BITS 28
+#define EDU_DMA_BUFFER_SIZE 64U
 
 struct edu_device {
 	struct pci_dev *pdev;
 	void __iomem *bar0;
+	void *dma_buf;
+	dma_addr_t dma_addr;
 	struct completion factorial_done;
 	int irq;
 };
@@ -142,9 +145,6 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	writel(EDU_LIVENESS_TEST, bar0 + EDU_REG_LIVENESS);
 
 	liveness = readl(bar0 + EDU_REG_LIVENESS);
-	dev_info(&pdev->dev, "liveness: wrote=0x%08x read=0x%08x\n",
-		 EDU_LIVENESS_TEST, liveness);
-
 	if (liveness != ~EDU_LIVENESS_TEST) {
 		dev_err(&pdev->dev,
 			"liveness mismatch: expected=0x%08x read=0x%08x\n",
@@ -153,6 +153,19 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		ret = -EIO;
 		goto err_iounmap;
 	}
+
+	dev_info(&pdev->dev, "liveness: wrote=0x%08x read=0x%08x\n",
+		 EDU_LIVENESS_TEST, liveness);
+
+	edu->dma_buf = dma_alloc_coherent(&pdev->dev, EDU_DMA_BUFFER_SIZE,
+					  &edu->dma_addr, GFP_KERNEL);
+	if (!edu->dma_buf) {
+		ret = -ENOMEM;
+		goto err_iounmap;
+	}
+
+	dev_info(&pdev->dev, "DMA buffer: cpu=%p dma=%pad size=%u\n",
+		 edu->dma_buf, &edu->dma_addr, EDU_DMA_BUFFER_SIZE);
 
 	pci_set_master(pdev);
 
@@ -228,6 +241,8 @@ err_free_irq_vectors:
 err_clear_drvdata:
 	pci_set_drvdata(pdev, NULL);
 	pci_clear_master(pdev);
+	dma_free_coherent(&pdev->dev, EDU_DMA_BUFFER_SIZE, edu->dma_buf,
+			  edu->dma_addr);
 err_iounmap:
 	pci_iounmap(pdev, bar0);
 err_release_region:
@@ -250,6 +265,8 @@ static void edu_remove(struct pci_dev *pdev)
 
 	pci_set_drvdata(pdev, NULL);
 	pci_clear_master(pdev);
+	dma_free_coherent(&pdev->dev, EDU_DMA_BUFFER_SIZE, edu->dma_buf,
+			  edu->dma_addr);
 
 	pci_iounmap(pdev, bar0);
 	pci_release_region(pdev, 0);

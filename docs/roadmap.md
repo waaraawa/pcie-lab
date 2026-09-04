@@ -250,6 +250,16 @@ Current WSL progress:
 - `dma_alloc_coherent()` 또는 DMA mapping API 사용
 - DMA 방향, 수명, cache coherency, IOMMU 이해
 
+Current WSL progress:
+
+- The driver has negotiated the EDU 28-bit DMA mask and allocated one 64-byte
+  coherent buffer.
+- Runtime output showed device address `0x047fd000`, which is within the
+  28-bit limit, while the CPU pointer was safely restricted as `(ptrval)`.
+- Normal remove and forced factorial-timeout paths released all observable PCI,
+  IRQ, and BAR resources; the error path also cleared status and pending cause.
+- DMA register programming and data transfer have not started.
+
 완료 조건:
 
 - RAM → EDU → RAM 전송 후 데이터가 일치한다.

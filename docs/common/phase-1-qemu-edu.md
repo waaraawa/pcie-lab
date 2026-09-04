@@ -152,6 +152,16 @@ Remaining work:
 - timeout, DMA address와 cleanup을 검증한다.
 - 이후 DMA 완료를 IRQ로 받는다.
 
+Current progress:
+
+- The driver negotiates the EDU 28-bit streaming and coherent DMA mask.
+- It allocates one 64-byte coherent buffer and stores the CPU virtual address
+  separately from the device-visible DMA address.
+- WSL verified a DMA address within the 28-bit range, existing INTx factorial
+  behavior, normal remove cleanup, and controlled probe-failure cleanup.
+- No EDU DMA register has been programmed yet; the first polling round trip is
+  next.
+
 ### 6. 사용자 공간 interface — 예정
 
 목표:

@@ -72,6 +72,26 @@ The EDU-local DMA buffer is 4096 bytes at BAR0 offset `0x40000`; it is memory,
 not another control register. DMA completion with command bit `0x04` raises
 interrupt cause `0x100`.
 
+## Coherent DMA buffer preparation
+
+Probe negotiates the EDU 28-bit streaming and coherent DMA mask, then allocates
+one 64-byte coherent host-memory buffer after MMIO liveness succeeds. The
+per-device state keeps two different addresses for the same allocation:
+
+- `dma_buf` is the CPU virtual address used by kernel code;
+- `dma_addr` is the device-visible address that will be written to EDU DMA
+  registers.
+
+The DMA address must not be dereferenced as a CPU pointer. A successful probe
+logs the mask, allocation size, and an address no greater than `0x0fffffff`.
+The CPU pointer can appear as `(ptrval)` because kernel `%p` output is
+restricted; that display does not indicate allocation failure.
+
+Normal remove and every post-allocation probe failure clear bus mastering
+before returning the coherent buffer. This lifecycle has been verified on WSL
+with both successful factorial completion and forced factorial timeout. No EDU
+DMA register is programmed yet; bidirectional transfer remains the next step.
+
 ## Factorial interrupt check
 
 By default, probe registers a shared INTx handler. The `use_msi=1` module

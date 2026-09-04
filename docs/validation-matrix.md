@@ -31,6 +31,8 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | Factorial completion via INTx | Pending | User-verified: handler precedes `5! = 120`, one IRQ, clean unload | Pending cross-host parity |
 | Factorial completion timeout cleanup | Pending | User-verified: forced timeout `-110`, no binding/IRQ/BAR owner, status and pending cause zero | Pending cross-host parity |
 | MSI | Pending | User-verified: one factorial MSI on Linux IRQ 28, cause `0x1` acknowledged to zero, bus-master and INTx-disable lifecycle observed, normal and forced-timeout cleanup passed | Pending cross-host parity |
+| 28-bit DMA mask | User-verified | User-verified | Verified per host |
+| Coherent DMA buffer lifecycle | Pending | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | Pending cross-host parity |
 | Bidirectional DMA | Pending | Pending | Pending |
 | User-space validation | Pending | Pending | Pending |
 | Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs recheck passed on 2026-08-25 | Host-local only |
