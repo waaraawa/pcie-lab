@@ -260,12 +260,12 @@ Current progress:
   separate from device-visible addresses.
 - Both hosts verified normal remove and forced factorial-timeout cleanup of all
   observable PCI, IRQ, and BAR resources.
-- The driver now writes the DMA source, destination, count, and command
-  registers for a 64-byte RAM-to-EDU transfer, then polls command bit `0x01`.
-  Intel macOS verified that the command completed in about 108 ms without
-  regressing INTx factorial completion.
-- EDU-to-RAM transfer and byte-for-byte data verification remain pending; the
-  one-way completion alone does not prove data integrity.
+- The driver now performs a polling 64-byte RAM-to-EDU-to-RAM round trip. It
+  clears the RAM buffer between directions and verifies the recovered pattern
+  byte for byte.
+- Intel macOS verified both DMA commands in about 100 ms each, recovered all 64
+  bytes, and then passed the existing INTx factorial path. WSL parity and
+  interrupt-driven DMA completion remain pending.
 
 완료 조건:
 

@@ -70,7 +70,7 @@ static void edu_disable_factorial_irq(struct edu_device *edu)
 	readl(edu->bar0 + EDU_REG_IRQ_STATUS);
 }
 
-static int edu_dma_ram_to_edu(struct edu_device *edu)
+static int edu_test_dma_round_trip(struct edu_device *edu)
 {
 	u8 *buffer = edu->dma_buf;
 	u32 command;
@@ -98,6 +98,48 @@ static int edu_dma_ram_to_edu(struct edu_device *edu)
 	}
 
 	dev_info(&edu->pdev->dev, "DMA RAM->EDU complete: %u bytes\n",
+		 EDU_DMA_BUFFER_SIZE);
+
+	memset(buffer, 0, EDU_DMA_BUFFER_SIZE);
+
+	writel(EDU_DMA_DEVICE_BUFFER, edu->bar0 + EDU_REG_DMA_SOURCE);
+	writel(lower_32_bits(edu->dma_addr),
+	       edu->bar0 + EDU_REG_DMA_DESTINATION);
+	writel(EDU_DMA_BUFFER_SIZE, edu->bar0 + EDU_REG_DMA_COUNT);
+
+	dma_wmb();
+
+	writel(EDU_DMA_COMMAND_RUN | EDU_DMA_COMMAND_EDU_TO_RAM,
+	       edu->bar0 + EDU_REG_DMA_COMMAND);
+
+	ret = readl_poll_timeout(edu->bar0 + EDU_REG_DMA_COMMAND, command,
+				 !(command & EDU_DMA_COMMAND_RUN),
+				 EDU_DMA_POLL_DELAY_US, EDU_DMA_TIMEOUT_US);
+	if (ret) {
+		dev_err(&edu->pdev->dev,
+			"DMA EDU->RAM timeout: command=0x%08x\n", command);
+		return ret;
+	}
+
+	dma_rmb();
+
+	dev_info(&edu->pdev->dev, "DMA EDU->RAM complete: %u bytes\n",
+		 EDU_DMA_BUFFER_SIZE);
+
+	for (i = 0; i < EDU_DMA_BUFFER_SIZE; i++) {
+		u8 expected = (u8)(0xa5U ^ i);
+
+		if (buffer[i] == expected)
+			continue;
+
+		dev_err(&edu->pdev->dev,
+			"DMA mismatch at byte %u: expected=0x%02x read=0x%02x\n",
+			i, (unsigned int)expected, (unsigned int)buffer[i]);
+
+		return -EIO;
+	}
+
+	dev_info(&edu->pdev->dev, "DMA round trip verified: %u bytes\n",
 		 EDU_DMA_BUFFER_SIZE);
 
 	return 0;
@@ -220,7 +262,7 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_set_drvdata(pdev, edu);
 
-	ret = edu_dma_ram_to_edu(edu);
+	ret = edu_test_dma_round_trip(edu);
 	if (ret)
 		goto err_clear_drvdata;
 

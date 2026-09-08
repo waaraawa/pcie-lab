@@ -34,7 +34,7 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | 28-bit DMA mask | User-verified | User-verified | Verified per host |
 | Coherent DMA buffer lifecycle | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | Verified per host |
 | Polling RAM-to-EDU command completion | User-verified: 64-byte command completed in about 108 ms; data not yet read back | Pending | Pending cross-host parity |
-| Bidirectional DMA | Pending | Pending | Pending |
+| Bidirectional DMA | User-verified: polling 64-byte RAM-to-EDU-to-RAM round trip recovered the full pattern | Pending | Pending cross-host parity |
 | User-space validation | Pending | Pending | Pending |
 | Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs recheck passed on 2026-08-25 | Host-local only |
 

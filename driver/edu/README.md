@@ -92,12 +92,12 @@ before returning the coherent buffer. This lifecycle has been verified on both
 Intel macOS and WSL with successful factorial completion and forced factorial
 timeout.
 
-The first polling transfer now fills that buffer with a deterministic 64-byte
-pattern, programs its DMA address as the source and EDU offset `0x40000` as the
-destination, starts the RAM-to-EDU transfer, and waits for command bit `0x01`
-to clear. Intel macOS has verified command completion without regressing INTx
-factorial operation. The reverse EDU-to-RAM transfer and byte-for-byte data
-comparison remain pending, so data integrity is not verified yet.
+The polling DMA test fills that buffer with a deterministic 64-byte pattern,
+copies it from RAM to EDU offset `0x40000`, clears the RAM buffer, and copies it
+back from EDU to the same DMA address. Both directions wait for command bit
+`0x01` to clear. Intel macOS has verified both transfers, byte-for-byte pattern
+recovery, and the existing INTx factorial operation. WSL parity and conversion
+of DMA completion from polling to IRQ remain pending.
 
 ## Factorial interrupt check
 
