@@ -5,6 +5,7 @@
 #include <linux/completion.h>
 #include <linux/jiffies.h>
 #include <linux/dma-mapping.h>
+#include <linux/iopoll.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -16,6 +17,10 @@
 #define EDU_REG_IRQ_STATUS 0x24
 #define EDU_REG_IRQ_RAISE 0x60
 #define EDU_REG_IRQ_ACK 0x64
+#define EDU_REG_DMA_SOURCE 0x80
+#define EDU_REG_DMA_DESTINATION 0x88
+#define EDU_REG_DMA_COUNT 0x90
+#define EDU_REG_DMA_COMMAND 0x98
 
 #define EDU_LIVENESS_TEST 0x12345678U
 
@@ -31,6 +36,13 @@
 
 #define EDU_DMA_MASK_BITS 28
 #define EDU_DMA_BUFFER_SIZE 64U
+#define EDU_DMA_DEVICE_BUFFER 0x40000U
+
+#define EDU_DMA_COMMAND_RUN 0x01U
+#define EDU_DMA_COMMAND_EDU_TO_RAM 0x02U
+
+#define EDU_DMA_POLL_DELAY_US 1000U
+#define EDU_DMA_TIMEOUT_US 1000000U
 
 struct edu_device {
 	struct pci_dev *pdev;
@@ -56,6 +68,39 @@ static void edu_disable_factorial_irq(struct edu_device *edu)
 	writel(EDU_IRQ_FACTORIAL, edu->bar0 + EDU_REG_IRQ_ACK);
 
 	readl(edu->bar0 + EDU_REG_IRQ_STATUS);
+}
+
+static int edu_dma_ram_to_edu(struct edu_device *edu)
+{
+	u8 *buffer = edu->dma_buf;
+	u32 command;
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < EDU_DMA_BUFFER_SIZE; i++)
+		buffer[i] = (u8)(0xa5U ^ i);
+
+	writel(lower_32_bits(edu->dma_addr), edu->bar0 + EDU_REG_DMA_SOURCE);
+	writel(EDU_DMA_DEVICE_BUFFER, edu->bar0 + EDU_REG_DMA_DESTINATION);
+	writel(EDU_DMA_BUFFER_SIZE, edu->bar0 + EDU_REG_DMA_COUNT);
+
+	dma_wmb();
+
+	writel(EDU_DMA_COMMAND_RUN, edu->bar0 + EDU_REG_DMA_COMMAND);
+
+	ret = readl_poll_timeout(edu->bar0 + EDU_REG_DMA_COMMAND, command,
+				 !(command & EDU_DMA_COMMAND_RUN),
+				 EDU_DMA_POLL_DELAY_US, EDU_DMA_TIMEOUT_US);
+	if (ret) {
+		dev_err(&edu->pdev->dev,
+			"DMA RAM->EDU timeout: command=0x%08x\n", command);
+		return ret;
+	}
+
+	dev_info(&edu->pdev->dev, "DMA RAM->EDU complete: %u bytes\n",
+		 EDU_DMA_BUFFER_SIZE);
+
+	return 0;
 }
 
 static irqreturn_t edu_irq_handler(int irq, void *data)
@@ -174,6 +219,10 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	irq_mode = use_msi ? "MSI" : "INTx";
 
 	pci_set_drvdata(pdev, edu);
+
+	ret = edu_dma_ram_to_edu(edu);
+	if (ret)
+		goto err_clear_drvdata;
 
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, pci_irq_flags);
 	if (ret < 0) {

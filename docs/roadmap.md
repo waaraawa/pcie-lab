@@ -213,7 +213,7 @@ EDU는 QEMU에서 conventional PCI endpoint로 제공된다. PCIe와 공통인 L
 - INTx를 먼저 확인하고 MSI로 전환
 - 동시성과 메모리 배리어 기초
 
-Current WSL progress:
+Current cross-host progress:
 
 - A one-shot write to interrupt-raise offset `0x60` verified INTx routing,
   shared-handler registration, cause readback, acknowledgement, and clean
@@ -250,15 +250,22 @@ Current WSL progress:
 - `dma_alloc_coherent()` 또는 DMA mapping API 사용
 - DMA 방향, 수명, cache coherency, IOMMU 이해
 
-Current WSL progress:
+Current progress:
 
 - The driver has negotiated the EDU 28-bit DMA mask and allocated one 64-byte
   coherent buffer.
-- Runtime output showed device address `0x047fd000`, which is within the
-  28-bit limit, while the CPU pointer was safely restricted as `(ptrval)`.
-- Normal remove and forced factorial-timeout paths released all observable PCI,
-  IRQ, and BAR resources; the error path also cleared status and pending cause.
-- DMA register programming and data transfer have not started.
+- WSL runtime output showed device address `0x047fd000`; Intel macOS showed
+  `0x05dcc000` on the normal path and `0x05d34000` on the forced-timeout path.
+  All addresses are within the 28-bit limit, while CPU pointer displays remain
+  separate from device-visible addresses.
+- Both hosts verified normal remove and forced factorial-timeout cleanup of all
+  observable PCI, IRQ, and BAR resources.
+- The driver now writes the DMA source, destination, count, and command
+  registers for a 64-byte RAM-to-EDU transfer, then polls command bit `0x01`.
+  Intel macOS verified that the command completed in about 108 ms without
+  regressing INTx factorial completion.
+- EDU-to-RAM transfer and byte-for-byte data verification remain pending; the
+  one-way completion alone does not prove data integrity.
 
 완료 조건:
 

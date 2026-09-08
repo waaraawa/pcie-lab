@@ -88,9 +88,16 @@ The CPU pointer can appear as `(ptrval)` because kernel `%p` output is
 restricted; that display does not indicate allocation failure.
 
 Normal remove and every post-allocation probe failure clear bus mastering
-before returning the coherent buffer. This lifecycle has been verified on WSL
-with both successful factorial completion and forced factorial timeout. No EDU
-DMA register is programmed yet; bidirectional transfer remains the next step.
+before returning the coherent buffer. This lifecycle has been verified on both
+Intel macOS and WSL with successful factorial completion and forced factorial
+timeout.
+
+The first polling transfer now fills that buffer with a deterministic 64-byte
+pattern, programs its DMA address as the source and EDU offset `0x40000` as the
+destination, starts the RAM-to-EDU transfer, and waits for command bit `0x01`
+to clear. Intel macOS has verified command completion without regressing INTx
+factorial operation. The reverse EDU-to-RAM transfer and byte-for-byte data
+comparison remain pending, so data integrity is not verified yet.
 
 ## Factorial interrupt check
 
