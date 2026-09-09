@@ -5,7 +5,6 @@
 #include <linux/completion.h>
 #include <linux/jiffies.h>
 #include <linux/dma-mapping.h>
-#include <linux/iopoll.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -31,6 +30,7 @@
 #define EDU_FACTORIAL_EXPECTED 120U
 
 #define EDU_IRQ_FACTORIAL 0x01U
+#define EDU_IRQ_DMA 0x100U
 
 #define EDU_FACTORIAL_TIMEOUT_MS 1000
 
@@ -40,8 +40,8 @@
 
 #define EDU_DMA_COMMAND_RUN 0x01U
 #define EDU_DMA_COMMAND_EDU_TO_RAM 0x02U
+#define EDU_DMA_COMMAND_IRQ 0x04U
 
-#define EDU_DMA_POLL_DELAY_US 1000U
 #define EDU_DMA_TIMEOUT_US 1000000U
 
 struct edu_device {
@@ -50,6 +50,7 @@ struct edu_device {
 	void *dma_buf;
 	dma_addr_t dma_addr;
 	struct completion factorial_done;
+	struct completion dma_done;
 	int irq;
 };
 
@@ -75,10 +76,12 @@ static int edu_test_dma_round_trip(struct edu_device *edu)
 	u8 *buffer = edu->dma_buf;
 	u32 command;
 	unsigned int i;
-	int ret;
+	unsigned long timeout;
 
 	for (i = 0; i < EDU_DMA_BUFFER_SIZE; i++)
 		buffer[i] = (u8)(0xa5U ^ i);
+
+	reinit_completion(&edu->dma_done);
 
 	writel(lower_32_bits(edu->dma_addr), edu->bar0 + EDU_REG_DMA_SOURCE);
 	writel(EDU_DMA_DEVICE_BUFFER, edu->bar0 + EDU_REG_DMA_DESTINATION);
@@ -86,21 +89,24 @@ static int edu_test_dma_round_trip(struct edu_device *edu)
 
 	dma_wmb();
 
-	writel(EDU_DMA_COMMAND_RUN, edu->bar0 + EDU_REG_DMA_COMMAND);
+	writel(EDU_DMA_COMMAND_RUN | EDU_DMA_COMMAND_IRQ,
+	       edu->bar0 + EDU_REG_DMA_COMMAND);
 
-	ret = readl_poll_timeout(edu->bar0 + EDU_REG_DMA_COMMAND, command,
-				 !(command & EDU_DMA_COMMAND_RUN),
-				 EDU_DMA_POLL_DELAY_US, EDU_DMA_TIMEOUT_US);
-	if (ret) {
+	timeout = usecs_to_jiffies(EDU_DMA_TIMEOUT_US);
+	if (!wait_for_completion_timeout(&edu->dma_done, timeout)) {
+		command = readl(edu->bar0 + EDU_REG_DMA_COMMAND);
+
 		dev_err(&edu->pdev->dev,
 			"DMA RAM->EDU timeout: command=0x%08x\n", command);
-		return ret;
+
+		return -ETIMEDOUT;
 	}
 
 	dev_info(&edu->pdev->dev, "DMA RAM->EDU complete: %u bytes\n",
 		 EDU_DMA_BUFFER_SIZE);
 
 	memset(buffer, 0, EDU_DMA_BUFFER_SIZE);
+	reinit_completion(&edu->dma_done);
 
 	writel(EDU_DMA_DEVICE_BUFFER, edu->bar0 + EDU_REG_DMA_SOURCE);
 	writel(lower_32_bits(edu->dma_addr),
@@ -109,16 +115,19 @@ static int edu_test_dma_round_trip(struct edu_device *edu)
 
 	dma_wmb();
 
-	writel(EDU_DMA_COMMAND_RUN | EDU_DMA_COMMAND_EDU_TO_RAM,
+	writel(EDU_DMA_COMMAND_RUN | EDU_DMA_COMMAND_EDU_TO_RAM |
+		       EDU_DMA_COMMAND_IRQ,
 	       edu->bar0 + EDU_REG_DMA_COMMAND);
 
-	ret = readl_poll_timeout(edu->bar0 + EDU_REG_DMA_COMMAND, command,
-				 !(command & EDU_DMA_COMMAND_RUN),
-				 EDU_DMA_POLL_DELAY_US, EDU_DMA_TIMEOUT_US);
-	if (ret) {
+	timeout = usecs_to_jiffies(EDU_DMA_TIMEOUT_US);
+
+	if (!wait_for_completion_timeout(&edu->dma_done, timeout)) {
+		command = readl(edu->bar0 + EDU_REG_DMA_COMMAND);
+
 		dev_err(&edu->pdev->dev,
 			"DMA EDU->RAM timeout: command=0x%08x\n", command);
-		return ret;
+
+		return -ETIMEDOUT;
 	}
 
 	dma_rmb();
@@ -166,6 +175,9 @@ static irqreturn_t edu_irq_handler(int irq, void *data)
 	if (pending & EDU_IRQ_FACTORIAL)
 		complete(&edu->factorial_done);
 
+	if (pending & EDU_IRQ_DMA)
+		complete(&edu->dma_done);
+
 	return IRQ_HANDLED;
 }
 
@@ -190,6 +202,7 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	edu->pdev = pdev;
 	init_completion(&edu->factorial_done);
+	init_completion(&edu->dma_done);
 
 	dev_info(&pdev->dev,
 		 "probe: BDF=%s vendor=0x%04x device=0x%04x irq=%u\n",
@@ -262,10 +275,6 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_set_drvdata(pdev, edu);
 
-	ret = edu_test_dma_round_trip(edu);
-	if (ret)
-		goto err_clear_drvdata;
-
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, pci_irq_flags);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "failed to allocate %s vector: %d\n",
@@ -290,6 +299,10 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	dev_info(&pdev->dev, "interrupt mode: %s, irq=%d\n", irq_mode, irq);
+
+	ret = edu_test_dma_round_trip(edu);
+	if (ret)
+		goto err_free_irq;
 
 	timeout = msecs_to_jiffies(EDU_FACTORIAL_TIMEOUT_MS);
 	reinit_completion(&edu->factorial_done);

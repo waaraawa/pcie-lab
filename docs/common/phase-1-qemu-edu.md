@@ -160,12 +160,13 @@ Current progress:
 - Intel macOS and WSL verified DMA addresses within the 28-bit range, existing
   INTx factorial behavior, normal remove cleanup, and controlled probe-failure
   cleanup.
-- The driver now performs a polling 64-byte RAM-to-EDU-to-RAM round trip. It
-  clears the RAM buffer between directions and verifies the recovered pattern
-  byte for byte after the return transfer.
-- Intel macOS verified both DMA commands in about 100 ms each, recovered all 64
-  bytes, and then passed the existing INTx factorial path. WSL parity and
-  interrupt-driven DMA completion remain pending.
+- The driver performs a 64-byte RAM-to-EDU-to-RAM round trip, clears the RAM
+  buffer between directions, and verifies the recovered pattern byte for byte.
+  Both DMA commands request completion IRQ bit `0x04` and wait on a per-device
+  completion instead of polling the run bit.
+- Intel macOS verified cause `0x100` for both approximately 100 ms transfers,
+  recovered all 64 bytes, and then handled the separate factorial cause `0x1`.
+  WSL parity and DMA timeout cleanup remain pending.
 
 ### 6. 사용자 공간 interface — 예정
 
