@@ -5,6 +5,7 @@
 #include <linux/completion.h>
 #include <linux/jiffies.h>
 #include <linux/dma-mapping.h>
+#include <linux/iopoll.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -43,6 +44,8 @@
 #define EDU_DMA_COMMAND_IRQ 0x04U
 
 #define EDU_DMA_TIMEOUT_US 1000000U
+#define EDU_DMA_INFLIGHT_TIMEOUT_MS 10U
+#define EDU_DMA_IDLE_POLL_DELAY_US 1000U
 
 struct edu_device {
 	struct pci_dev *pdev;
@@ -59,16 +62,58 @@ module_param(force_factorial_timeout, bool, 0444);
 MODULE_PARM_DESC(force_factorial_timeout,
 		 "skip factorial start to exercise timeout cleanup");
 
+static bool force_dma_irq_timeout;
+module_param(force_dma_irq_timeout, bool, 0444);
+MODULE_PARM_DESC(force_dma_irq_timeout,
+		 "omit first DMA completion IRQ to exercise timeout cleanup");
+
+static bool force_dma_inflight_timeout;
+module_param(force_dma_inflight_timeout, bool, 0444);
+MODULE_PARM_DESC(force_dma_inflight_timeout,
+		 "shorten first DMA completion wait to exercise busy teardown");
+
 static bool use_msi;
 module_param(use_msi, bool, 0444);
 MODULE_PARM_DESC(use_msi, "use MSI instead of legacy INTx");
 
-static void edu_disable_factorial_irq(struct edu_device *edu)
+static void edu_quiesce_irqs(struct edu_device *edu)
 {
 	writel(0, edu->bar0 + EDU_REG_STATUS);
-	writel(EDU_IRQ_FACTORIAL, edu->bar0 + EDU_REG_IRQ_ACK);
+	writel(EDU_IRQ_FACTORIAL | EDU_IRQ_DMA, edu->bar0 + EDU_REG_IRQ_ACK);
 
 	readl(edu->bar0 + EDU_REG_IRQ_STATUS);
+}
+
+static int edu_wait_dma_idle(struct edu_device *edu)
+{
+	u32 command;
+	int ret;
+
+	command = readl(edu->bar0 + EDU_REG_DMA_COMMAND);
+	if (!(command & EDU_DMA_COMMAND_RUN)) {
+		dev_info(&edu->pdev->dev,
+			 "DMA idle before teardown: command=0x%08x\n", command);
+		return 0;
+	}
+
+	dev_warn(&edu->pdev->dev, "wait for DMA idle: command=0x%08x\n",
+		 command);
+
+	ret = readl_poll_timeout(edu->bar0 + EDU_REG_DMA_COMMAND, command,
+				 !(command & EDU_DMA_COMMAND_RUN),
+				 EDU_DMA_IDLE_POLL_DELAY_US,
+				 EDU_DMA_TIMEOUT_US);
+
+	if (ret) {
+		dev_err(&edu->pdev->dev,
+			"DMA failed to become idle: command=0x%08x\n", command);
+		return ret;
+	}
+
+	dev_info(&edu->pdev->dev, "DMA idle before teardown: command=0x%08x\n",
+		 command);
+
+	return 0;
 }
 
 static int edu_test_dma_round_trip(struct edu_device *edu)
@@ -77,6 +122,8 @@ static int edu_test_dma_round_trip(struct edu_device *edu)
 	u32 command;
 	unsigned int i;
 	unsigned long timeout;
+	u32 dma_command;
+	u32 pending;
 
 	for (i = 0; i < EDU_DMA_BUFFER_SIZE; i++)
 		buffer[i] = (u8)(0xa5U ^ i);
@@ -89,15 +136,31 @@ static int edu_test_dma_round_trip(struct edu_device *edu)
 
 	dma_wmb();
 
-	writel(EDU_DMA_COMMAND_RUN | EDU_DMA_COMMAND_IRQ,
-	       edu->bar0 + EDU_REG_DMA_COMMAND);
+	dma_command = EDU_DMA_COMMAND_RUN | EDU_DMA_COMMAND_IRQ;
+
+	if (force_dma_irq_timeout) {
+		dev_info(&edu->pdev->dev, "forcing DMA IRQ timeout\n");
+		dma_command &= ~EDU_DMA_COMMAND_IRQ;
+	}
 
 	timeout = usecs_to_jiffies(EDU_DMA_TIMEOUT_US);
+
+	if (force_dma_inflight_timeout) {
+		timeout = msecs_to_jiffies(EDU_DMA_INFLIGHT_TIMEOUT_MS);
+		dev_info(&edu->pdev->dev,
+			 "forcing DMA in-flight timeout: wait=%u ms\n",
+			 EDU_DMA_INFLIGHT_TIMEOUT_MS);
+	}
+
+	writel(dma_command, edu->bar0 + EDU_REG_DMA_COMMAND);
+
 	if (!wait_for_completion_timeout(&edu->dma_done, timeout)) {
 		command = readl(edu->bar0 + EDU_REG_DMA_COMMAND);
+		pending = readl(edu->bar0 + EDU_REG_IRQ_STATUS);
 
 		dev_err(&edu->pdev->dev,
-			"DMA RAM->EDU timeout: command=0x%08x\n", command);
+			"DMA RAM->EDU timeout: command=0x%08x pending=0x%08x\n",
+			command, pending);
 
 		return -ETIMEDOUT;
 	}
@@ -334,17 +397,27 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_free_irq;
 	}
 
-	edu_disable_factorial_irq(edu);
+	edu_quiesce_irqs(edu);
 	return 0;
 
 err_free_irq:
-	edu_disable_factorial_irq(edu);
+	pci_clear_master(pdev);
+
+	while (edu_wait_dma_idle(edu)) {
+		dev_err(&edu->pdev->dev,
+			"DMA still busy; retaining resources and retrying\n");
+	}
+
+	edu_quiesce_irqs(edu);
 	free_irq(edu->irq, edu);
+	pci_free_irq_vectors(pdev);
+	goto err_clear_drvdata_master_off;
 err_free_irq_vectors:
 	pci_free_irq_vectors(pdev);
 err_clear_drvdata:
-	pci_set_drvdata(pdev, NULL);
 	pci_clear_master(pdev);
+err_clear_drvdata_master_off:
+	pci_set_drvdata(pdev, NULL);
 	dma_free_coherent(&pdev->dev, EDU_DMA_BUFFER_SIZE, edu->dma_buf,
 			  edu->dma_addr);
 err_iounmap:
@@ -363,12 +436,18 @@ static void edu_remove(struct pci_dev *pdev)
 
 	dev_info(&pdev->dev, "remove: BDF=%s\n", pci_name(pdev));
 
-	edu_disable_factorial_irq(edu);
+	pci_clear_master(pdev);
+
+	while (edu_wait_dma_idle(edu)) {
+		dev_err(&edu->pdev->dev,
+			"DMA still busy; retaining resources and retrying\n");
+	}
+
+	edu_quiesce_irqs(edu);
 	free_irq(edu->irq, edu);
 	pci_free_irq_vectors(pdev);
 
 	pci_set_drvdata(pdev, NULL);
-	pci_clear_master(pdev);
 	dma_free_coherent(&pdev->dev, EDU_DMA_BUFFER_SIZE, edu->dma_buf,
 			  edu->dma_addr);
 

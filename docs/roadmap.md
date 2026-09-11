@@ -266,7 +266,16 @@ Current progress:
   completion instead of polling the run bit.
 - Intel macOS verified cause `0x100` for both approximately 100 ms transfers,
   recovered all 64 bytes, and then handled the separate factorial cause `0x1`.
-  WSL parity and DMA timeout cleanup remain pending.
+  WSL parity remains pending.
+- Intel macOS verified a lost-notification timeout by omitting command IRQ bit
+  `0x04`. EDU cleared its run bit without raising cause `0x100`; the completion
+  wait returned `-110` with command and pending-cause registers both zero, and
+  probe cleanup released the binding, BAR0 owner, and IRQ action.
+- Intel macOS INTx testing verified an in-flight timeout with command `0x05`,
+  bus-master-first teardown, a late DMA IRQ, and idle command `0x04` before
+  resource release. Final binding, BAR owner, IRQ action, and module checks
+  passed. Permanent-busy retry behavior and MSI/WSL parity remain unverified;
+  the lab retry policy has no overall teardown deadline.
 
 완료 조건:
 

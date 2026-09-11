@@ -35,7 +35,9 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | Coherent DMA buffer lifecycle | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | Verified per host |
 | Polling RAM-to-EDU command completion | User-verified: 64-byte command completed in about 108 ms; data not yet read back | Pending | Pending cross-host parity |
 | Bidirectional DMA | User-verified: IRQ-driven 64-byte RAM-to-EDU-to-RAM round trip recovered the full pattern | Pending | Pending cross-host parity |
-| DMA completion via INTx | User-verified: cause `0x100` acknowledged to zero for both directions | Pending | Pending cross-host parity |
+| DMA completion via INTx | User-verified: cause `0x100` acknowledged to zero for both directions; normal remove with latest idle-wait loops reported command `0x06` and final binding/BAR/IRQ/module absence | Pending | Pending cross-host parity |
+| DMA in-flight timeout idle wait | User-verified: command `0x05` at timeout, late INTx cause `0x100` acknowledged, command `0x04` before probe error `-110`; final binding, BAR owner, IRQ action, and module absent | Pending | Pending cross-host parity |
+| DMA lost-IRQ timeout cleanup | User-verified: command and pending cause zero; probe returned `-110`; binding, BAR0 owner, IRQ action, and final module entry absent | Pending | Pending cross-host parity |
 | User-space validation | Pending | Pending | Pending |
 | Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs recheck passed on 2026-08-25 | Host-local only |
 

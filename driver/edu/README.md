@@ -97,8 +97,26 @@ from RAM to EDU offset `0x40000`, clears the RAM buffer, and copies it back from
 EDU to the same DMA address. Both commands request completion interrupt bit
 `0x04` and wait on a per-device completion. Intel macOS has verified interrupt
 cause `0x100` for both transfers, byte-for-byte pattern recovery, and the
-separate factorial cause `0x1`. WSL parity and DMA timeout cleanup remain
-pending.
+separate factorial cause `0x1`. WSL parity remains pending.
+
+The read-only `force_dma_irq_timeout=1` parameter omits completion IRQ bit
+`0x04` from the first DMA command while still starting the transfer. Intel
+macOS verified that the engine cleared its run bit but no DMA cause became
+pending; the completion wait then returned `-ETIMEDOUT`, and probe cleanup left
+no binding, BAR0 owner, or IRQ action. This represents a lost completion
+notification after the engine is idle.
+
+The separate `force_dma_inflight_timeout=1` parameter limits the first
+completion wait to 10 ms while leaving its IRQ request enabled. Intel macOS
+INTx testing observed command `0x05` at timeout, a late DMA IRQ while teardown
+waited for idle, and command `0x04` before resource release. Final checks found
+no binding, BAR0 owner, IRQ action, or module entry. This tests teardown, not
+data integrity of the interrupted transfer. Use the two fault modes separately.
+
+Teardown clears bus mastering and retains IRQ and buffer resources until idle
+is confirmed. Each idle poll is bounded, but retries have no overall deadline:
+a permanently busy engine can block insmod/rmmod until QEMU is stopped. This
+is a fixed-QEMU lab policy, not production reset or hot-unplug recovery.
 
 ## Factorial interrupt check
 
