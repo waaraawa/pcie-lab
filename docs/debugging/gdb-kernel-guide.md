@@ -27,10 +27,10 @@ continue
 
 실행 중인 커널을 다시 멈추려면 GDB 터미널에서 `Ctrl-C`를 누른다.
 
-## GDB 시작과 QEMU 연결
+## Starting GDB and connecting to QEMU
 
 ```bash
-cd /home/waaraawa/projects/pcie/local/wsl/linux-6.12.101
+cd <repo>/local/wsl/linux-6.12.101
 gdb ./vmlinux
 ```
 
@@ -38,7 +38,7 @@ gdb ./vmlinux
 target remote 127.0.0.1:1234
 ```
 
-현재 상태 확인:
+Check current state:
 
 ```gdb
 info target
@@ -46,7 +46,7 @@ info program
 info threads
 ```
 
-QEMU 원격 대상에는 일반 프로그램처럼 `run`을 사용하지 않는다. 실행 재개는 `continue`를 사용한다.
+Do not use `run` against a remote QEMU target as you would with a normal user-space program. Use `continue` to resume execution.
 
 ## 가장 많이 쓰는 단축 명령
 

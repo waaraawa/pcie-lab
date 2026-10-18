@@ -15,9 +15,9 @@ BusyBox initramfs, QEMU EDU와 `edu_pci` driver 실습 환경을 처음부터 �
 - GDB가 필요할 때: 12절 수행
 - 부팅이나 module load가 실패할 때: 14절 확인
 
-## 1. 완성할 환경
+## 1. Target environment
 
-이 문서를 끝까지 수행하면 다음 구조가 동작한다.
+Completing this guide produces the following setup:
 
 ```text
 Windows
@@ -32,20 +32,22 @@ QEMU guest
 └── edu_pci.ko
     ├── PCI binding
     ├── BAR0 mapping
-    ├── identification
-    ├── liveness
-    └── factorial polling
+    ├── identification & liveness
+    ├── 28-bit coherent DMA round trip (IRQ-driven)
+    ├── factorial completion (INTx / MSI)
+    └── sysfs identification attribute
 ```
 
-현재 EDU 기능의 성공 조건은 다음과 같다.
+Success criteria for the current EDU driver:
 
-- QEMU guest에서 `1234:11e8` 장치를 찾는다.
-- `edu_pci.ko`가 Linux 6.12.101용으로 build된다.
-- `insmod` 후 driver가 EDU에 bind된다.
-- identification은 `0x010000ed`다.
-- liveness는 `0x12345678`을 쓰면 `0xedcba987`을 반환한다.
-- factorial polling은 `5! = 120`을 반환한다.
-- `rmmod` 후 binding, module과 BAR0 owner가 모두 사라진다.
+- Discover the `1234:11e8` device in the QEMU guest.
+- Build `edu_pci.ko` against Linux 6.12.101.
+- Bind `edu_pci` to the EDU device on `insmod`.
+- Read identification `0x010000ed` (in kernel log and via `sysfs`).
+- Verify liveness inversion (`0x12345678` -> `0xedcba987`).
+- Verify the 64-byte RAM -> EDU -> RAM DMA round trip with two DMA IRQs (`0x100`).
+- Verify factorial `5! = 120` after completion IRQ (`0x1`).
+- Remove the binding, module entry, `sysfs` attribute, IRQ action, and BAR0 owner on `rmmod`.
 
 ## 2. 준비 조건
 
@@ -585,14 +587,14 @@ readlink "$EDU/driver" ||
     echo "OK: unbound"
 ```
 
-### 10.2 Module load와 기능 확인
+### 10.2 Module load and functional check
 
 ```sh
 insmod /lib/modules/6.12.101/extra/edu_pci.ko
 echo "insmod exit=$?"
 ```
 
-정상 조건:
+Expected output:
 
 ```text
 insmod exit=0
@@ -601,33 +603,40 @@ identification: 0x010000ed
 liveness: wrote=0x12345678 read=0xedcba987
 DMA buffer: cpu=(ptrval) dma=<address-at-or-below-0x0fffffff> size=64
 interrupt mode: INTx
+pending=0x00000100 remaining=0x00000000
+DMA RAM->EDU complete: 64 bytes
+pending=0x00000100 remaining=0x00000000
+DMA EDU->RAM complete: 64 bytes
+DMA round trip verified: 64 bytes
 pending=0x00000001 remaining=0x00000000
 factorial: 5! = 120
 ```
 
-`out-of-tree module taints kernel`은 외부 실습 module에서 예상되는 정보다.
-초기 IRQ 11 log 뒤 ACPI가 IRQ 23을 enable할 수 있으며 현재 단계의 오류가 아니다.
+`out-of-tree module taints kernel` is expected for an external lab module.
+ACPI may enable IRQ 23 after the initial IRQ 11 log; this is not an error.
 The CPU pointer may be displayed as `(ptrval)` because `%p` is restricted. The
 DMA address must be no greater than `0x0fffffff`; it is a device address and
 must not be dereferenced by the CPU.
 
-Load 상태 확인:
+Check the loaded state:
 
 ```sh
 readlink "$EDU/driver"
+cat "$EDU/identification"
 grep '^edu_pci ' /proc/modules
 grep -F 'edu_pci' /proc/iomem
 
 dmesg |
-    grep -E 'edu_pci.*(probe|identification|liveness|factorial|failed)'
+    grep -E 'edu_pci.*(probe|identification|liveness|DMA|factorial|failed)'
 ```
 
-정상 조건:
+Expected results:
 
-- driver link가 `../../../bus/pci/drivers/edu_pci`를 가리킨다.
-- `/proc/modules`에 `Live (O)` 상태가 보인다.
-- `/proc/iomem`에 BAR0 owner `edu_pci`가 보인다.
-- `failed` log가 없다.
+- The driver link points to `../../../bus/pci/drivers/edu_pci`.
+- `cat "$EDU/identification"` prints `0x010000ed`.
+- `/proc/modules` shows the `Live (O)` state.
+- `/proc/iomem` shows BAR0 owned by `edu_pci`.
+- No `failed` log is present.
 
 ### 10.3 Compare MSI with INTx
 
@@ -647,9 +656,11 @@ od -An -tx2 -j 4 -N 2 "$EDU/config"
 Success requires all of the following observations:
 
 - the driver log reports `interrupt mode: MSI` and no timeout;
-- the ISR acknowledges cause `0x1` to zero before factorial result 120;
+- the ISR acknowledges two DMA causes (`0x100`) and one factorial cause (`0x1`)
+  to zero, verifying the 64-byte DMA round trip and `5! = 120`;
 - the parameter reads `Y`;
-- `/proc/interrupts` identifies one `PCI-MSI` delivery;
+- `/proc/interrupts` identifies a `PCI-MSI` vector with three deliveries summed
+  across CPU columns (two DMA completions and one factorial);
 - PCI Command bit `0x0004` (Bus Master Enable) is set;
 - PCI Command bit `0x0400` (INTx Disable) is normally also set while MSI is
   active.
@@ -890,22 +901,183 @@ unstable로 표시하고 `Switched to clocksource hpet`까지 출력하면 이 �
 현재 최소 `/init`이 control TTY 없이 shell을 직접 실행해서 나타난다. 일반
 guest 명령 실행에는 지장이 없다.
 
-## 15. 완료 checklist
+## 15. Completion checklist
 
-- [ ] WSL package와 QEMU가 준비됨
-- [ ] Linux 6.12.101 `vmlinux`와 `bzImage` build
-- [ ] `vmlinux` debug information 확인
-- [ ] static BusyBox initramfs 생성
-- [ ] `edu_pci.ko` build와 `6.12.101` vermagic 확인
-- [ ] initramfs module 동일성과 gzip 검사 통과
-- [ ] QEMU EDU `1234:11e8` 발견
-- [ ] binding과 BAR0 owner 확인
-- [ ] identification, liveness와 factorial 확인
-- [ ] Verify the INTx factorial IRQ and acknowledgement
-- [ ] Verify the MSI factorial IRQ, Bus Master Enable, and INTx Disable
-- [ ] unload 후 binding/module/BAR0 cleanup 확인
-- [ ] 필요 시 GDB `start_kernel` breakpoint 확인
+- [ ] WSL packages and QEMU installed
+- [ ] Linux 6.12.101 `vmlinux` and `bzImage` built
+- [ ] `vmlinux` debug information verified
+- [ ] Static BusyBox initramfs created
+- [ ] `edu_pci.ko` built with `6.12.101` vermagic
+- [ ] Initramfs module identity and gzip checks passed
+- [ ] QEMU EDU `1234:11e8` discovered
+- [ ] Binding and BAR0 owner verified
+- [ ] Identification (`0x010000ed`), liveness, and factorial verified
+- [ ] 28-bit coherent DMA buffer and 64-byte RAM -> EDU -> RAM round trip verified
+- [ ] Verify the INTx DMA (`0x100`) and factorial (`0x1`) IRQs and acknowledgement
+- [ ] Verify the MSI DMA and factorial IRQs (count 3), Bus Master Enable, and INTx Disable
+- [ ] Verify lost-IRQ and in-flight DMA timeout cleanup
+- [ ] Verify read-only `sysfs` `identification` (`0x010000ed`) and removal on `rmmod`
+- [ ] Verify binding, module, IRQ, and BAR0 cleanup after unload
+- [ ] Verify GDB `start_kernel` breakpoint when needed
 
 Completing every item reproduces the current WSL environment and EDU driver
-through interrupt-driven factorial completion in both INTx and MSI modes. DMA
-is the next device-data-path stage.
+through interrupt-driven 64-byte DMA round trip, factorial completion, timeout
+cleanup in both INTx and MSI modes, and the read-only `sysfs` `identification`
+attribute.
+
+## 16. WSL DMA and sysfs validation evidence (2026-10-14 / 2026-10-18)
+
+The learner provided guest `dmesg | grep edu_pci` output. Specific addresses and
+timestamps below are observations from those runs, not fixed test constants.
+
+```text
+[   28.269942] edu_pci 0000:00:03.0: DMA buffer: cpu=(____ptrval____) dma=0x00000000045b1000 size=64
+[   28.270772] edu_pci 0000:00:03.0: interrupt mode: INTx, irq=23
+[   28.370867] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000100 remaining=0x00000000
+[   28.371260] edu_pci 0000:00:03.0: DMA RAM->EDU complete: 64 bytes
+[   28.470737] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000100 remaining=0x00000000
+[   28.471038] edu_pci 0000:00:03.0: DMA EDU->RAM complete: 64 bytes
+[   28.471252] edu_pci 0000:00:03.0: DMA round trip verified: 64 bytes
+[   28.471488] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000001 remaining=0x00000000
+[   28.472196] edu_pci 0000:00:03.0: factorial: 5! = 120
+```
+
+Normal INTx DMA round trip is recorded as **User-verified**. Two DMA causes
+(`0x100`) and one factorial cause (`0x1`) were acknowledged to zero, the buffer
+address stayed within 28 bits, and the 64-byte pattern comparison passed.
+
+### Normal remove check
+
+Follow-up learner output confirmed:
+
+```text
+[  166.016606] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
+[  166.019575] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
+```
+
+`0x06` indicates direction `0x02` and IRQ request `0x04` with `RUN` (`0x01`)
+cleared. The device driver link, `/proc/iomem` BAR owner, and `/proc/interrupts`
+IRQ action were absent.
+
+### Lost completion IRQ fault
+
+Command run in the guest:
+
+```sh
+insmod /lib/modules/$(uname -r)/extra/edu_pci.ko force_dma_irq_timeout=1
+```
+
+Learner-provided output (`insmod exit=0`):
+
+```text
+[  415.840271] edu_pci 0000:00:03.0: DMA buffer: cpu=(____ptrval____) dma=0x0000000004586000 size=64
+[  415.840934] edu_pci 0000:00:03.0: interrupt mode: INTx, irq=23
+[  415.841166] edu_pci 0000:00:03.0: forcing DMA IRQ timeout
+[  416.855116] edu_pci 0000:00:03.0: DMA RAM->EDU timeout: command=0x00000000 pending=0x00000000
+[  416.857720] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000000
+[  416.859554] edu_pci 0000:00:03.0: probe with driver edu_pci failed with error -110
+```
+
+The completion wait timed out with DMA `RUN` and pending cause both zero.
+Subsequent learner checks confirmed no driver link, BAR owner, or IRQ action
+while the unbound `edu_pci` module remained registered, followed by
+`rmmod exit=0` and an empty `grep '^edu_pci ' /proc/modules` result
+(**User-verified**).
+
+### In-flight DMA timeout
+
+Learner-provided output for `force_dma_inflight_timeout=1` (`insmod exit=0`):
+
+```text
+[ 1291.804490] edu_pci 0000:00:03.0: DMA buffer: cpu=(____ptrval____) dma=0x0000000004552000 size=64
+[ 1291.805790] edu_pci 0000:00:03.0: interrupt mode: INTx, irq=23
+[ 1291.806070] edu_pci 0000:00:03.0: forcing DMA in-flight timeout: wait=10 ms
+[ 1291.816781] edu_pci 0000:00:03.0: DMA RAM->EDU timeout: command=0x00000005 pending=0x00000000
+[ 1291.817232] edu_pci 0000:00:03.0: wait for DMA idle: command=0x00000005
+[ 1291.905763] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000100 remaining=0x00000000
+[ 1291.906168] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000004
+[ 1291.907462] edu_pci 0000:00:03.0: probe with driver edu_pci failed with error -110
+```
+
+At timeout, command `0x05` had `RUN` and IRQ request set. While teardown waited
+for idle, the late DMA cause `0x100` was acknowledged, `RUN` cleared to `0x04`,
+and probe returned `-110`. Binding absence before `rmmod`, `rmmod exit=0`, and
+post-`rmmod` absence of module, BAR owner, and IRQ action were confirmed
+(**User-verified**).
+
+### MSI normal DMA baseline and cleanup (2026-10-14)
+
+Learner-provided output for `use_msi=1` (`insmod exit=0`):
+
+```text
+[ 1788.719525] edu_pci 0000:00:03.0: DMA buffer: cpu=0000000088c1548c dma=0x000000000485c000 size=64
+[ 1788.723821] edu_pci 0000:00:03.0: interrupt mode: MSI, irq=28
+[ 1788.823873] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=28, pending=0x00000100 remaining=0x00000000
+[ 1788.824731] edu_pci 0000:00:03.0: DMA RAM->EDU complete: 64 bytes
+[ 1788.924724] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=28, pending=0x00000100 remaining=0x00000000
+[ 1788.925314] edu_pci 0000:00:03.0: DMA EDU->RAM complete: 64 bytes
+[ 1788.925594] edu_pci 0000:00:03.0: DMA round trip verified: 64 bytes
+[ 1788.925962] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=28, pending=0x00000001 remaining=0x00000000
+[ 1788.926250] edu_pci 0000:00:03.0: factorial: 5! = 120
+ 28:          3          0  PCI-MSI-0000:00:03.0   0-edge      edu_pci_irq
+```
+
+Per-CPU MSI counts sum to 3 (two DMA completions and one factorial completion).
+PCI Command changed from `0x0507` before `rmmod` to `0x0103` after `rmmod`
+(clearing Bus Master Enable `0x0004` and INTx Disable `0x0400`), with idle
+command `0x06` and absent driver link, BAR owner, IRQ action, and module entry
+(**User-verified**):
+
+```text
+[ 2047.061283] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
+[ 2047.061993] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
+```
+
+### MSI lost-IRQ and in-flight faults (2026-10-14)
+
+Learner-provided output for `use_msi=1 force_dma_irq_timeout=1` (`insmod exit=0`):
+
+```text
+[ 2418.719316] edu_pci 0000:00:03.0: DMA buffer: cpu=00000000de087117 dma=0x0000000003966000 size=64
+[ 2418.720304] edu_pci 0000:00:03.0: interrupt mode: MSI, irq=28
+[ 2418.720571] edu_pci 0000:00:03.0: forcing DMA IRQ timeout
+[ 2419.735957] edu_pci 0000:00:03.0: DMA RAM->EDU timeout: command=0x00000000 pending=0x00000000
+[ 2419.736587] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000000
+[ 2419.738340] edu_pci 0000:00:03.0: probe with driver edu_pci failed with error -110
+```
+
+Learner-provided output for `use_msi=1 force_dma_inflight_timeout=1` (`insmod exit=0`):
+
+```text
+[ 2635.716539] edu_pci 0000:00:03.0: DMA buffer: cpu=000000005766d4c5 dma=0x000000000455a000 size=64
+[ 2635.720155] edu_pci 0000:00:03.0: interrupt mode: MSI, irq=28
+[ 2635.720472] edu_pci 0000:00:03.0: forcing DMA in-flight timeout: wait=10 ms
+[ 2635.732949] edu_pci 0000:00:03.0: DMA RAM->EDU timeout: command=0x00000005 pending=0x00000000
+[ 2635.734593] edu_pci 0000:00:03.0: wait for DMA idle: command=0x00000005
+[ 2635.821714] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000004
+[ 2635.822924] edu_pci 0000:00:03.0: probe with driver edu_pci failed with error -110
+```
+
+In both MSI fault runs, post-probe PCI Command was `0x0103`, binding/BAR/IRQ
+were absent before `rmmod`, and `rmmod edu_pci` exited 0 and removed the module
+(**User-verified**). Unlike INTx, no late DMA ISR log appeared during the MSI
+in-flight idle wait: the workspace runs QEMU `8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.17)`,
+and upstream v8.2.2 [PCI code](https://github.com/qemu/qemu/blob/v8.2.2/hw/pci/pci.c)
+sends MSI writes through `bus_master_as` gated by BME, which is disabled when
+the driver calls `pci_clear_master()` before polling idle in
+[EDU](https://github.com/qemu/qemu/blob/v8.2.2/hw/misc/edu.c).
+
+### Read-only sysfs identification (2026-10-18)
+
+Learner-provided guest output verified `identification` readback while bound and
+removal after `rmmod`:
+
+```text
+~ # cat /sys/bus/pci/devices/0000:00:03.0/identification
+0x010000ed
+~ # rmmod edu_pci
+[   48.436967] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
+[   48.438841] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
+~ # test ! -e /sys/bus/pci/devices/0000:00:03.0/identification && echo "OK"
+OK
+```

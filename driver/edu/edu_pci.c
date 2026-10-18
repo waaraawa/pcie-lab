@@ -6,6 +6,7 @@
 #include <linux/jiffies.h>
 #include <linux/dma-mapping.h>
 #include <linux/iopoll.h>
+#include <linux/sysfs.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -244,6 +245,25 @@ static irqreturn_t edu_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static ssize_t identification_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct edu_device *edu = pci_get_drvdata(pdev);
+	u32 edu_id;
+
+	edu_id = readl(edu->bar0 + EDU_REG_ID);
+	return sysfs_emit(buf, "0x%08x\n", edu_id);
+}
+
+static DEVICE_ATTR_RO(identification);
+
+static struct attribute *edu_attrs[] = {
+	&dev_attr_identification.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(edu);
+
 static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	int ret;
@@ -468,6 +488,7 @@ static struct pci_driver edu_pci_driver = {
 	.id_table = edu_pci_ids,
 	.probe = edu_probe,
 	.remove = edu_remove,
+	.dev_groups = edu_groups,
 };
 
 module_pci_driver(edu_pci_driver);

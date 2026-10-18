@@ -34,12 +34,15 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | 28-bit DMA mask | User-verified | User-verified | Verified per host |
 | Coherent DMA buffer lifecycle | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | User-verified: 64-byte allocation within 28-bit range, normal and forced-timeout cleanup passed | Verified per host |
 | Polling RAM-to-EDU command completion | User-verified: 64-byte command completed in about 108 ms; data not yet read back | Pending | Pending cross-host parity |
-| Bidirectional DMA | User-verified: IRQ-driven 64-byte RAM-to-EDU-to-RAM round trip recovered the full pattern | Pending | Pending cross-host parity |
-| DMA completion via INTx | User-verified: cause `0x100` acknowledged to zero for both directions; normal remove with latest idle-wait loops reported command `0x06` and final binding/BAR/IRQ/module absence | Pending | Pending cross-host parity |
-| DMA in-flight timeout idle wait | User-verified: command `0x05` at timeout, late INTx cause `0x100` acknowledged, command `0x04` before probe error `-110`; final binding, BAR owner, IRQ action, and module absent | Pending | Pending cross-host parity |
-| DMA lost-IRQ timeout cleanup | User-verified: command and pending cause zero; probe returned `-110`; binding, BAR0 owner, IRQ action, and final module entry absent | Pending | Pending cross-host parity |
-| User-space validation | Pending | Pending | Pending |
-| Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs recheck passed on 2026-08-25 | Host-local only |
+| Bidirectional DMA | User-verified: IRQ-driven 64-byte RAM-to-EDU-to-RAM round trip recovered the full pattern | User-verified (2026-10-14): INTx and MSI 64-byte round trips passed byte comparison; normal cleanup observed in both modes | Manual result recorded on both hosts; same-revision/shared-test gate pending |
+| DMA completion via INTx | User-verified: cause `0x100` acknowledged to zero for both directions; normal remove with latest idle-wait loops reported command `0x06` and final binding/BAR/IRQ/module absence | User-verified (2026-10-14): two cause `0x100` IRQs on IRQ 23 acknowledged to zero; remove idle command `0x06`, binding/BAR/IRQ absent; subsequent fresh module load observed | Manual normal completion/cleanup recorded on both hosts; formal shared-test gate pending |
+| DMA completion via MSI | Pending | User-verified (2026-10-14): IRQ 28, two DMA causes `0x100` and factorial cause `0x1`, all acknowledged to zero; 64-byte round trip passed, CPU counts 3+0; normal remove idle `0x06`, Command `0x0507`→`0x0103`, and final binding/BAR/IRQ/module absence observed | Mac MSI DMA and formal shared-test gate pending |
+| DMA in-flight timeout idle wait | User-verified: command `0x05` at timeout, late INTx cause `0x100` acknowledged, command `0x04` before probe error `-110`; final binding, BAR owner, IRQ action, and module absent | User-verified (2026-10-14): timeout and idle wait at command `0x05`, late cause `0x100` acknowledged to zero, idle `0x04`, probe `-110`, reported insmod exit 0; binding absent before rmmod; rmmod exit 0 and final BAR/IRQ/module absence observed | Manual idle-wait/final cleanup result recorded on both hosts; formal shared-test gate pending |
+| DMA lost-IRQ timeout cleanup | User-verified: command and pending cause zero; probe returned `-110`; binding, BAR0 owner, IRQ action, and final module entry absent | User-verified (2026-10-14): command/pending zero, idle log, probe `-110`, reported insmod exit 0; binding/BAR/IRQ absent; unbound module removed with rmmod exit 0 and final module absence | Manual cleanup result recorded on both hosts; formal shared-test gate pending |
+| MSI DMA lost-IRQ timeout cleanup | Pending | User-verified (2026-10-14): MSI timeout command/pending zero, idle log, probe `-110`, reported insmod exit 0, post-probe Command `0x0103` clears BME/INTx-disable; binding/BAR/IRQ absent before rmmod, unbound module present, rmmod exit 0 and final module absence observed | Pending Mac parity and formal gate |
+| MSI DMA in-flight timeout idle wait | Pending | User-verified (2026-10-14): timeout/idle wait `0x05`, idle `0x04`, probe `-110`, reported insmod exit 0, post-probe Command `0x0103`; no late ISR log; binding/BAR/IRQ absent before rmmod, unbound module present, rmmod exit 0 and final module absence observed | Pending Mac parity and formal gate |
+| User-space validation | Pending | User-verified (2026-10-18): read-only `sysfs` `identification` returned `0x010000ed` and was removed after `rmmod` | Pending Mac parity and full user-space test |
+| Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs checks passed on 2026-10-18 | Host-local only |
 
 ## Cross-host completion rules
 
@@ -54,9 +57,13 @@ cross-host complete:
    limitations.
 5. A smoke-test module result is not treated as EDU feature validation.
 
-The canonical EDU driver produces matching manual runtime behavior through
-factorial polling on both hosts. Windows/WSL additionally verifies one-shot
-INTx, interrupt-driven factorial completion, deterministic timeout cleanup, and
-one-vector MSI completion with explicit bus-master setup and teardown. IRQ
-remains short of the formal cross-host gate until the same source and shared
-guest test pass on Intel macOS.
+The canonical EDU driver has manual normal DMA and timeout/cleanup evidence on
+both hosts in INTx mode. On 2026-10-14 WSL user-provided output additionally
+confirmed all three paths in MSI mode: normal 64-byte round trip, lost-IRQ
+timeout, and in-flight timeout with idle-before-release/final cleanup.
+
+The MSI in-flight run had no late ISR log. Do not require late MSI delivery as
+its acceptance criterion: the driver clears bus mastering before polling idle,
+and upstream QEMU 8.2.2 gates MSI writes through that address space. This is a
+source-based explanation, not a transaction-trace result. Mac MSI DMA and the
+same-revision/shared-guest-test formal gate remain pending.

@@ -8,7 +8,12 @@ Windows/WSL has verified binding, BAR0/MMIO, identification, liveness, one-shot
 INTx, interrupt-driven factorial completion, controlled timeout cleanup, and a
 one-vector MSI mode with verified bus-master lifecycle. The driver also
 negotiates the EDU 28-bit DMA mask and allocates a coherent buffer with verified
-normal and probe-failure cleanup. DMA transfer and cross-host IRQ parity remain.
+normal and probe-failure cleanup. IRQ-driven 64-byte bidirectional DMA and
+DMA timeout cleanup have user-verified INTx results on both hosts. WSL also
+user-verified normal MSI DMA with three completion interrupts, normal and both
+DMA-timeout cleanup paths, and a read-only `sysfs` `identification` attribute
+(`dev_groups`) across load and `rmmod`. Mac MSI parity, additional user-space
+controls, and the same-revision/shared-test cross-host gate remain.
 
 ## 학습 순서
 

@@ -24,23 +24,30 @@ The emulated device is QEMU EDU, identified by PCI vendor/device ID
 The driver controls the device in this order:
 
 1. Match the PCI ID and enter `probe()`.
-2. Enable the PCI device.
+2. Enable the PCI device and negotiate the 28-bit DMA mask.
 3. Reserve and map BAR0.
-4. Read the identification register.
-5. Write and read the liveness register.
-6. Request factorial, poll for completion, and read the result.
-7. Unmap and release resources in `remove()`.
+4. Read the identification register and verify the liveness register.
+5. Allocate a 64-byte coherent DMA buffer, enable Bus Mastering, and register
+   the INTx or MSI interrupt handler.
+6. Run an IRQ-driven 64-byte RAM -> EDU -> RAM DMA round trip and verify the
+   recovered pattern.
+7. Request factorial (`5!`), wait for its completion interrupt, and verify
+   `120`.
+8. Clear Bus Mastering, wait for DMA idle, quiesce IRQs, and release all
+   resources in `remove()`.
 
 The exercise succeeds when the log shows:
 
 ```text
+DMA mask: 28 bits
 identification: 0x010000ed
 liveness: wrote=0x12345678 read=0xedcba987
+DMA round trip verified: 64 bytes
 factorial: 5! = 120
 ```
 
-After `rmmod`, the driver binding, module entry, and BAR0 ownership must also be
-gone.
+After `rmmod`, the driver binding, IRQ action, module entry, and BAR0 ownership
+must also be gone.
 
 ## 2. Check the host once
 
@@ -263,17 +270,21 @@ Load the module and read its results:
 sudo insmod /tmp/edu_pci.ko
 
 sudo dmesg |
-    grep -E 'edu_pci.*(probe:|identification:|liveness:|factorial:)' |
-    tail -n 4
+    grep -E 'edu_pci.*(probe:|identification:|liveness:|DMA|irq:|factorial:)' |
+    tail -n 12
 ```
 
-The four log lines prove PCI matching, BAR0 MMIO access, and factorial command
-completion. Check the live state separately:
+The log lines prove PCI matching, BAR0 MMIO access, two DMA completion IRQs
+(`0x100`) for the 64-byte round trip, and the factorial completion IRQ (`0x1`)
+with result `120`. To test MSI mode instead of legacy INTx, pass `use_msi=1` to
+`insmod` (which expects three `PCI-MSI` deliveries across CPUs: two DMA and one
+factorial). Check the live state separately:
 
 ```sh
 readlink "/sys/bus/pci/devices/$EDU_BDF/driver"
 grep '^edu_pci ' /proc/modules
 sudo grep -F 'edu_pci' /proc/iomem
+grep -F 'edu_pci_irq' /proc/interrupts
 ```
 
 Expected results:
@@ -281,6 +292,7 @@ Expected results:
 - The driver link ends in `/bus/pci/drivers/edu_pci`.
 - `/proc/modules` contains a live `edu_pci` entry.
 - `/proc/iomem` shows BAR0 owned by `edu_pci`.
+- `/proc/interrupts` shows `edu_pci_irq`.
 
 If `insmod` fails, inspect the latest messages:
 
@@ -293,7 +305,8 @@ Common meanings:
 - `invalid module format`: guest kernel and module vermagic differ.
 - BAR request failure: another owner holds the resource.
 - liveness mismatch: the MMIO write/read path did not behave as expected.
-- factorial timeout: the device did not finish before the driver's deadline.
+- DMA or factorial timeout: the device did not finish or deliver its interrupt
+  before the driver's deadline.
 
 ## 8. Unload and verify cleanup
 
@@ -302,7 +315,7 @@ Run in the **guest**:
 ```sh
 sudo rmmod edu_pci
 
-sudo dmesg | grep -E 'edu_pci.*remove:' | tail -n 1
+sudo dmesg | grep -E 'edu_pci.*(remove:|DMA idle before teardown:)' | tail -n 2
 
 test ! -e "/sys/bus/pci/devices/$EDU_BDF/driver" &&
     echo "OK: driver unbound"
@@ -312,10 +325,13 @@ grep '^edu_pci ' /proc/modules ||
 
 sudo grep -F 'edu_pci' /proc/iomem ||
     echo "OK: BAR0 region released"
+
+grep -F 'edu_pci_irq' /proc/interrupts ||
+    echo "OK: IRQ handler removed"
 ```
 
-All three `OK` messages are required. They show that the driver reversed its
-setup and left no binding or BAR0 ownership behind.
+All four `OK` messages are required. They show that the driver reversed its
+setup and left no binding, IRQ action, or BAR0 ownership behind.
 
 ## 9. Repeat after changing the driver
 
@@ -328,7 +344,8 @@ For each driver change:
 
 Before adding a new EDU feature, identify its register or function, the order
 of driver operations, and the result that will prove success. The next learning
-step is the polling-based DMA round trip after the interrupt flow is familiar.
+step on Intel Mac is MSI DMA parity (`use_msi=1`) and the user-space interface
+(`sysfs` / char device).
 
 ## 10. Stop QEMU
 

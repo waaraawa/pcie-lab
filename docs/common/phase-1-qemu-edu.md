@@ -138,19 +138,20 @@ Remaining work:
 
 - Repeat the IRQ milestone on Intel macOS and satisfy the cross-host gate.
 
-### 5. DMA — 예정
+### 5. DMA — in progress
 
-목표:
+Goal:
 
-- DMA mask와 PCI bus mastering을 설정한다.
-- DMA-safe RAM buffer를 준비한다.
-- CPU 복사 대신 EDU DMA engine으로 RAM과 장치 buffer 사이를 전송한다.
+- Configure the DMA mask and PCI bus mastering.
+- Allocate a DMA-safe RAM buffer.
+- Transfer data between RAM and the device buffer using the EDU DMA engine
+  instead of CPU copies.
 
-정상 조건:
+Success criteria:
 
-- RAM -> EDU -> RAM 왕복 후 데이터가 일치한다.
-- timeout, DMA address와 cleanup을 검증한다.
-- 이후 DMA 완료를 IRQ로 받는다.
+- Data matches after a RAM -> EDU -> RAM round trip.
+- Verify timeout handling, DMA addresses, and resource cleanup.
+- Receive DMA completion via interrupts.
 
 Current progress:
 
@@ -164,33 +165,45 @@ Current progress:
   buffer between directions, and verifies the recovered pattern byte for byte.
   Both DMA commands request completion IRQ bit `0x04` and wait on a per-device
   completion instead of polling the run bit.
-- Intel macOS verified cause `0x100` for both approximately 100 ms transfers,
-  recovered all 64 bytes, and then handled the separate factorial cause `0x1`.
-  WSL parity remains pending.
-- Intel macOS also verified a lost-notification timeout. A fault-injection
-  parameter omitted command IRQ bit `0x04`; EDU completed the transfer and
-  cleared its run bit, but the driver's completion wait timed out with command
-  and pending-cause registers both zero. Probe returned `-110` and released
-  the binding, BAR0 owner, and IRQ action.
-- Intel macOS INTx testing also verified an in-flight timeout: a 10-ms wait
-  expired with command `0x05`, teardown cleared bus mastering and retained the
-  handler for a late DMA IRQ, then confirmed idle at command `0x04` before
-  releasing resources. Final binding, BAR owner, IRQ action, and module checks
-  passed. Permanent-busy retry behavior and MSI/WSL parity remain unverified;
-  the lab retry policy has no overall teardown deadline.
+- Intel macOS and WSL (INTx and MSI) verified cause `0x100` for both
+  approximately 100 ms transfers, recovered all 64 bytes, and then handled the
+  separate factorial cause `0x1`. Mac MSI parity and the shared-test gate
+  remain pending.
+- Intel macOS (INTx) and WSL (INTx and MSI) also verified a lost-notification
+  timeout. A fault-injection parameter omitted command IRQ bit `0x04`; EDU
+  completed the transfer and cleared its run bit, but the driver's completion
+  wait timed out with command and pending-cause registers both zero. Probe
+  returned `-110` and released the binding, BAR0 owner, and IRQ action.
+- Intel macOS (INTx) and WSL (INTx and MSI) testing also verified an in-flight
+  timeout: a 10-ms wait expired with command `0x05`, teardown cleared bus
+  mastering and waited until idle at command `0x04` before releasing resources.
+  Final binding, BAR owner, IRQ action, and module checks passed. Permanent-busy
+  retry behavior, Mac MSI parity, and the formal shared-test gate remain
+  unverified; the lab retry policy has no overall teardown deadline.
 
-### 6. 사용자 공간 interface — 예정
+### 6. User-space interface — in progress
 
-목표:
+Goal:
 
-- `/dev/edu0` character device를 만든다.
-- 사용자 프로그램이 `ioctl()`로 factorial과 DMA를 요청하게 한다.
-- `copy_from_user()`와 `copy_to_user()`의 경계를 이해한다.
+- Expose a read-only `sysfs` `identification` attribute via `pci_driver.dev_groups`.
+- Create a `/dev/edu0` character device.
+- Let a user-space program request factorial and DMA operations via `ioctl()`.
+- Understand the boundary between `sysfs`, `ioctl()`, `copy_from_user()`, and
+  `copy_to_user()`.
 
-정상 조건:
+Success criteria:
 
-- 사용자 프로그램에서 factorial 결과를 받는다.
-- 잘못된 입력과 동시 요청을 driver가 안전하게 처리한다.
+- User space reads `0x010000ed` from `sysfs` `identification`, and the attribute
+  is removed cleanly on `rmmod`.
+- A user-space program receives factorial and DMA results via `/dev/edu0`.
+- The driver safely handles invalid inputs and concurrent requests.
+
+Current progress:
+
+- `driver/edu/edu_pci.c` exposes a read-only `identification` attribute via
+  `pci_driver.dev_groups` (WSL QEMU guest user-verified `0x010000ed` readback
+  and removal on `rmmod`).
+- The `/dev/edu0` character device and `ioctl()` interface remain pending.
 
 ### 7. 실제 driver 형태로 정리 — 예정
 
@@ -204,15 +217,15 @@ Current progress:
 EDU register map 대신 해당 장치 datasheet의 register map을 사용하지만,
 PCI binding, BAR, MMIO, IRQ, DMA와 사용자 interface라는 큰 구조는 동일하다.
 
-## 현재 위치
+## Current position
 
 ```text
 [complete] binding
    -> [complete] BAR/MMIO
    -> [complete] liveness/factorial polling
    -> [in progress] IRQ: WSL INTx and MSI verified; Mac parity remains
-   -> [planned] DMA
-   -> [planned] /dev/edu0 + ioctl
+   -> [in progress] DMA: WSL INTx/MSI and Mac INTx verified; Mac MSI and shared-test gate remain
+   -> [in progress] /dev/edu0 + ioctl (read-only sysfs identification verified on WSL; char dev + ioctl pending)
    -> [planned] production-style driver cleanup
 ```
 

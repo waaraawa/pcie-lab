@@ -24,7 +24,25 @@ host-to-device data path를 설명하고, 구현하고, 디버깅하고, 검증�
 EDU에서 기본 수명주기를 익힌 뒤 NVMe에서 queue 기반 데이터 경로를 추적하고,
 software 쪽 불확실성을 줄인 다음 실제 하드웨어와 Windows로 이동한다.
 
-## 현재 위치
+## Current position
+
+As of 2026-10-18, the project is in **Phase 1-6 user-space interface (`sysfs`)
+and robustness validation**. In addition to the user-verified WSL INTx/MSI DMA
+round-trip and timeout cleanup runs, the driver now exposes a read-only `sysfs`
+`identification` attribute (`dev_groups`) user-verified on WSL across load
+(`0x010000ed`) and `rmmod`.
+
+- 1-1~1-3: PCI binding, BAR/MMIO, and basic register operations complete.
+- 1-4: INTx/MSI factorial completion and timeout fault injection verified on WSL.
+- 1-5: IRQ-driven 64-byte DMA round trip and timeout cleanup verified in INTx
+  mode on Intel macOS and in both INTx and MSI modes on WSL (normal round trip,
+  lost-IRQ timeout, and in-flight timeout). Mac MSI parity and the shared-test
+  gate remain pending.
+- 1-6: Read-only `sysfs` `identification` attribute (`pci_driver.dev_groups`)
+  implemented and user-verified on WSL. Additional user-space controls and
+  shared guest tests remain pending.
+- Phase 2 entry gate and cross-host completion via shared tests remain pending.
+
 
 ### 단계 0 — 커널 디버깅 실습 환경 구축
 
@@ -264,37 +282,49 @@ Current progress:
   buffer between directions, and verifies the recovered pattern byte for byte.
   Both DMA commands request completion IRQ bit `0x04` and wait on a per-device
   completion instead of polling the run bit.
-- Intel macOS verified cause `0x100` for both approximately 100 ms transfers,
-  recovered all 64 bytes, and then handled the separate factorial cause `0x1`.
-  WSL parity remains pending.
-- Intel macOS verified a lost-notification timeout by omitting command IRQ bit
-  `0x04`. EDU cleared its run bit without raising cause `0x100`; the completion
-  wait returned `-110` with command and pending-cause registers both zero, and
-  probe cleanup released the binding, BAR0 owner, and IRQ action.
-- Intel macOS INTx testing verified an in-flight timeout with command `0x05`,
-  bus-master-first teardown, a late DMA IRQ, and idle command `0x04` before
-  resource release. Final binding, BAR owner, IRQ action, and module checks
-  passed. Permanent-busy retry behavior and MSI/WSL parity remain unverified;
-  the lab retry policy has no overall teardown deadline.
+- Intel macOS and WSL (INTx and MSI) verified cause `0x100` for both
+  approximately 100 ms transfers, recovered all 64 bytes, and then handled the
+  separate factorial cause `0x1`. Mac MSI parity and the shared-test gate
+  remain pending.
+- Intel macOS (INTx) and WSL (INTx and MSI) verified a lost-notification
+  timeout by omitting command IRQ bit `0x04`. EDU cleared its run bit without
+  raising cause `0x100`; the completion wait returned `-110` with command and
+  pending-cause registers both zero, and probe cleanup released the binding,
+  BAR0 owner, and IRQ action.
+- Intel macOS (INTx) and WSL (INTx and MSI) testing verified an in-flight
+  timeout with command `0x05`, bus-master-first teardown, and idle command
+  `0x04` before resource release (with a late DMA IRQ observed in INTx mode and
+  suppressed after `pci_clear_master()` in MSI mode). Final binding, BAR owner,
+  IRQ action, and module checks passed. Permanent-busy retry behavior, Mac MSI
+  parity, and the formal shared-test gate remain unverified; the lab retry
+  policy has no overall teardown deadline.
 
 완료 조건:
 
 - RAM → EDU → RAM 전송 후 데이터가 일치한다.
 - DMA 주소를 CPU 포인터처럼 사용하면 안 되는 이유를 설명할 수 있다.
 
-### 1-6. 사용자 인터페이스와 견고성
+### 1-6. User interface and robustness
 
-- sysfs 또는 character device 중 작은 인터페이스 구현
-- `ioctl`, read/write, mmap의 용도 비교
-- locking, timeout, reset, error path
-- hot-unplug/remove 중 I/O 중단
-- 여러 장치 인스턴스 지원
-- `dev_*()` 로그와 dynamic debug 활용
+- Implement a small user-space interface (`sysfs` or character device)
+- Compare `ioctl`, `read`/`write`, and `mmap` use cases
+- Locking, timeout, reset, and error paths
+- Aborting in-flight I/O during hot-unplug or `remove()`
+- Supporting multiple device instances
+- Using `dev_*()` logging and dynamic debug
 
-완료 조건:
+Current progress:
 
-- 사용자 프로그램에서 장치 기능을 호출한다.
-- 반복 load/unload와 실패 주입에도 자원 누수가 없다.
+- `driver/edu/edu_pci.c` exposes a read-only `identification` sysfs attribute
+  (`DEVICE_ATTR_RO(identification)`) attached through `pci_driver.dev_groups`.
+- WSL QEMU guest testing user-verified `0x010000ed` readback via
+  `cat /sys/bus/pci/devices/0000:00:03.0/identification` and automatic removal
+  after `rmmod edu_pci`.
+
+Completion criteria:
+
+- User space invokes device functionality through the driver interface.
+- Repeated load/unload and fault injection produce no resource leaks.
 
 ### 1-7. PCIe 전용 기능
 
@@ -375,15 +405,15 @@ Linux와 Windows API 이름은 다르지만 다음 하드웨어 지식은 그대
 - reset/error recovery 절차
 - concurrency와 memory ordering 요구 사항
 
-## 바로 다음 작업
+## Next steps
 
-단계 1-3 factorial polling까지 완료했다. repository 병합 작업을 마친 뒤
-단계 1-4 IRQ를 진행한다.
-
-1. EDU test interrupt register로 독립적인 IRQ를 발생시킨다.
-2. IRQ handler에서 interrupt status를 읽고 acknowledge한다.
-3. handler와 teardown을 검증한 뒤 factorial 완료를 polling에서 IRQ 방식으로
-   전환한다.
+1. Expand the Phase 1-6 user-space interface and add repeated load/unload
+   validation.
+2. Implement shared guest tests in `tests/guest/` and acceptance criteria in
+   `tests/expected/`.
+3. Complete Intel macOS MSI DMA validation to close the cross-host parity gap.
+4. Complete the Intel macOS matching `vmlinux`/remote-GDB path and document the
+   lack of an overall teardown deadline when DMA remains permanently busy.
 
 ## 참고 문서
 

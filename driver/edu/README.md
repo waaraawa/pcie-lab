@@ -97,21 +97,34 @@ from RAM to EDU offset `0x40000`, clears the RAM buffer, and copies it back from
 EDU to the same DMA address. Both commands request completion interrupt bit
 `0x04` and wait on a per-device completion. Intel macOS has verified interrupt
 cause `0x100` for both transfers, byte-for-byte pattern recovery, and the
-separate factorial cause `0x1`. WSL parity remains pending.
+separate factorial cause `0x1`. WSL user-provided logs on 2026-10-14
+confirmed the same normal round trip in both INTx and MSI modes; MSI counted
+three deliveries (two DMA and one factorial), then verified normal cleanup
+and Command bits clearing. Both WSL MSI timeout modes and final cleanup were
+also user-verified. Mac MSI parity and the formal same-revision/shared-test gate
+remain pending.
 
 The read-only `force_dma_irq_timeout=1` parameter omits completion IRQ bit
 `0x04` from the first DMA command while still starting the transfer. Intel
 macOS verified that the engine cleared its run bit but no DMA cause became
 pending; the completion wait then returned `-ETIMEDOUT`, and probe cleanup left
-no binding, BAR0 owner, or IRQ action. This represents a lost completion
-notification after the engine is idle.
+no binding, BAR0 owner, or IRQ action. WSL subsequently user-verified the same
+timeout/idle state, absent probe resources, and final module removal in both
+INTx and MSI modes. This represents a lost completion notification after the
+engine is idle.
 
 The separate `force_dma_inflight_timeout=1` parameter limits the first
 completion wait to 10 ms while leaving its IRQ request enabled. Intel macOS
 INTx testing observed command `0x05` at timeout, a late DMA IRQ while teardown
 waited for idle, and command `0x04` before resource release. Final checks found
-no binding, BAR0 owner, IRQ action, or module entry. This tests teardown, not
-data integrity of the interrupted transfer. Use the two fault modes separately.
+no binding, BAR0 owner, IRQ action, or module entry. WSL user-provided INTx
+logs also showed the busy-to-idle sequence and final absence checks after rmmod.
+WSL MSI likewise reached idle and passed final cleanup, but had no late ISR log.
+Upstream QEMU 8.2.2 sends MSI through its BME-gated bus-master address space,
+consistent with suppression after this driver clears master before waiting.
+This is a source-based interpretation; see the WSL host evidence for references.
+This tests teardown, not data integrity of the interrupted transfer. Use the two
+fault modes separately.
 
 Teardown clears bus mastering and retains IRQ and buffer resources until idle
 is confirmed. Each idle poll is bounded, but retries have no overall deadline:
@@ -161,7 +174,8 @@ od -An -tx2 -j 4 -N 2 /sys/bus/pci/devices/0000:00:03.0/config
 
 The log must report `interrupt mode: MSI`, an ISR line with cause `0x1`
 acknowledged to zero, factorial result 120, and no timeout. The parameter must
-read `Y`; `/proc/interrupts` must identify a `PCI-MSI` vector with one delivery.
+read `Y`; `/proc/interrupts` must identify a `PCI-MSI` vector; a clean successful load now expects three
+deliveries summed across CPU columns (two DMA completions and one factorial).
 PCI Command bit `0x0004` must be set while bound. Linux normally also sets bit
 `0x0400` to disable the unused legacy INTx path; compare bits rather than
 requiring one exact full register value.
@@ -200,3 +214,22 @@ be absent, PCI Command bits `0x0004` and `0x0400` must be clear, and direct
 reads of EDU status `0x20` and pending cause `0x24` must both return zero. The
 module remains loaded until `rmmod edu_pci` because driver registration itself
 succeeded.
+
+## User-space sysfs identification
+
+The driver attaches `edu_groups` via `struct pci_driver.dev_groups` to expose a
+read-only `identification` attribute (`0444`) under the bound PCI device's
+sysfs directory. Because the driver core manages `dev_groups`, the attribute is
+created only after `edu_probe()` returns zero and is removed before
+`edu_remove()` unmaps BAR0.
+
+Verify in the guest while the driver is bound:
+
+```sh
+cat /sys/bus/pci/devices/0000:00:03.0/identification
+rmmod edu_pci
+test ! -e /sys/bus/pci/devices/0000:00:03.0/identification && echo "OK"
+```
+
+Expected output is `0x010000ed` while bound, followed by `OK` after
+`rmmod edu_pci`.
