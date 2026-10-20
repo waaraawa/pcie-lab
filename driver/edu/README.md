@@ -233,3 +233,39 @@ test ! -e /sys/bus/pci/devices/0000:00:03.0/identification && echo "OK"
 
 Expected output is `0x010000ed` while bound, followed by `OK` after
 `rmmod edu_pci`.
+
+## User-space `/dev/edu0` character device and `ioctl`
+
+At the end of `edu_probe()`, the driver registers `/dev/edu0` as a dynamic
+`miscdevice` (`MISC_DYNAMIC_MINOR`), and `edu_remove()` calls
+`misc_deregister()` first before disabling bus mastering or releasing BAR0/IRQ
+resources.
+
+`edu_ioctl()` supports two commands protected by `edu->lock` (`struct mutex`):
+
+- `EDU_IOC_FACTORIAL` (`_IOWR('e', 1, u32)`): copies the input from user space
+  via `copy_from_user()`, rejects inputs above `12` with `-EINVAL`, runs IRQ-driven
+  factorial calculation, and writes the result back via `copy_to_user()`
+  (returning `-EFAULT` on invalid user pointers).
+- `EDU_IOC_DMA_TEST` (`_IO('e', 2)`): runs the 64-byte IRQ-driven RAM-to-EDU-to-RAM
+  round-trip DMA verification.
+
+Build the static guest test program from the repository root before packaging
+the initramfs:
+
+```bash
+gcc -Wall -Wextra -O2 -static \
+  tests/guest/edu_ioctl_test.c \
+  -o local/wsl/initramfs/bin/edu_ioctl_test
+scripts/wsl/phase1/update-initramfs.sh
+```
+
+In the guest (`~ #`), load the module and run `/bin/edu_ioctl_test`:
+
+```sh
+insmod /lib/modules/6.12.101/extra/edu_pci.ko
+/bin/edu_ioctl_test
+echo "exit=$?"
+rmmod edu_pci
+test ! -e /dev/edu0 && echo "OK"
+```

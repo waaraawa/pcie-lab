@@ -7,6 +7,11 @@
 #include <linux/dma-mapping.h>
 #include <linux/iopoll.h>
 #include <linux/sysfs.h>
+#include <linux/fs.h>
+#include <linux/miscdevice.h>
+#include <linux/ioctl.h>
+#include <linux/uaccess.h>
+#include <linux/mutex.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
@@ -48,6 +53,12 @@
 #define EDU_DMA_INFLIGHT_TIMEOUT_MS 10U
 #define EDU_DMA_IDLE_POLL_DELAY_US 1000U
 
+#define EDU_FACTORIAL_MAX_INPUT 12U
+
+#define EDU_IOC_MAGIC 'e'
+#define EDU_IOC_FACTORIAL _IOWR(EDU_IOC_MAGIC, 1, u32)
+#define EDU_IOC_DMA_TEST _IO(EDU_IOC_MAGIC, 2)
+
 struct edu_device {
 	struct pci_dev *pdev;
 	void __iomem *bar0;
@@ -56,6 +67,8 @@ struct edu_device {
 	struct completion factorial_done;
 	struct completion dma_done;
 	int irq;
+	struct miscdevice miscdev;
+	struct mutex lock;
 };
 
 static bool force_factorial_timeout;
@@ -245,6 +258,31 @@ static irqreturn_t edu_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static int edu_calc_factorial(struct edu_device *edu, u32 input, u32 *result)
+{
+	unsigned long timeout = msecs_to_jiffies(EDU_FACTORIAL_TIMEOUT_MS);
+	u32 status;
+
+	if (input > EDU_FACTORIAL_MAX_INPUT)
+		return -EINVAL;
+
+	reinit_completion(&edu->factorial_done);
+	writel(EDU_STATUS_IRQFACT, edu->bar0 + EDU_REG_STATUS);
+	writel(input, edu->bar0 + EDU_REG_FACTORIAL);
+
+	if (!wait_for_completion_timeout(&edu->factorial_done, timeout)) {
+		status = readl(edu->bar0 + EDU_REG_STATUS);
+		dev_err(&edu->pdev->dev, "factorial timeout: status=0x%08x\n",
+			status);
+		edu_quiesce_irqs(edu);
+		return -ETIMEDOUT;
+	}
+
+	*result = readl(edu->bar0 + EDU_REG_FACTORIAL);
+	edu_quiesce_irqs(edu);
+	return 0;
+}
+
 static ssize_t identification_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
@@ -255,6 +293,50 @@ static ssize_t identification_show(struct device *dev,
 	edu_id = readl(edu->bar0 + EDU_REG_ID);
 	return sysfs_emit(buf, "0x%08x\n", edu_id);
 }
+
+static long edu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct edu_device *edu =
+		container_of(file->private_data, struct edu_device, miscdev);
+	u32 __user *argp = (u32 __user *)arg;
+	u32 val;
+	int ret;
+
+	switch (cmd) {
+	case EDU_IOC_FACTORIAL:
+		if (copy_from_user(&val, argp, sizeof(val)))
+			return -EFAULT;
+
+		if (mutex_lock_interruptible(&edu->lock))
+			return -ERESTARTSYS;
+
+		ret = edu_calc_factorial(edu, val, &val);
+		mutex_unlock(&edu->lock);
+		if (ret)
+			return ret;
+
+		if (copy_to_user(argp, &val, sizeof(val)))
+			return -EFAULT;
+
+		return 0;
+
+	case EDU_IOC_DMA_TEST:
+		if (mutex_lock_interruptible(&edu->lock))
+			return -ERESTARTSYS;
+
+		ret = edu_test_dma_round_trip(edu);
+		mutex_unlock(&edu->lock);
+		return ret;
+
+	default:
+		return -ENOTTY;
+	}
+}
+
+static const struct file_operations edu_fops = {
+	.owner = THIS_MODULE,
+	.unlocked_ioctl = edu_ioctl,
+};
 
 static DEVICE_ATTR_RO(identification);
 
@@ -286,6 +368,8 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	edu->pdev = pdev;
 	init_completion(&edu->factorial_done);
 	init_completion(&edu->dma_done);
+
+	mutex_init(&edu->lock);
 
 	dev_info(&pdev->dev,
 		 "probe: BDF=%s vendor=0x%04x device=0x%04x irq=%u\n",
@@ -418,6 +502,18 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	edu_quiesce_irqs(edu);
+
+	edu->miscdev.minor = MISC_DYNAMIC_MINOR;
+	edu->miscdev.name = "edu0";
+	edu->miscdev.fops = &edu_fops;
+	edu->miscdev.parent = &pdev->dev;
+
+	ret = misc_register(&edu->miscdev);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to register misc device: %d\n",
+			ret);
+		goto err_free_irq;
+	}
 	return 0;
 
 err_free_irq:
@@ -455,6 +551,8 @@ static void edu_remove(struct pci_dev *pdev)
 	void __iomem *bar0 = edu->bar0;
 
 	dev_info(&pdev->dev, "remove: BDF=%s\n", pci_name(pdev));
+
+	misc_deregister(&edu->miscdev);
 
 	pci_clear_master(pdev);
 

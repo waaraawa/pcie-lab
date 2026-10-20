@@ -1081,3 +1081,31 @@ removal after `rmmod`:
 ~ # test ! -e /sys/bus/pci/devices/0000:00:03.0/identification && echo "OK"
 OK
 ```
+
+### `/dev/edu0` miscdevice and `ioctl` validation (2026-10-20)
+
+Learner-provided guest output verified `/dev/edu0` creation (`10, 258`),
+`/proc/misc` registration (`258 edu0`), user-space `ioctl` execution via
+`tests/guest/edu_ioctl_test.c` (`EDU_IOC_FACTORIAL` for `6! = 720`,
+`EDU_IOC_DMA_TEST` 64-byte round trip, and `-EINVAL`/`-EFAULT` rejection), and
+device-node removal on `rmmod`:
+
+```text
+~ # ls -l /dev/edu0
+crw-------    1 0        0          10, 258 Oct 20 09:03 /dev/edu0
+~ # ./bin/edu_ioctl_test
+[   53.244095] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000001 remaining=0x00000000
+factorial(6) = 720
+[   53.348742] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000100 remaining=0x00000000
+[   53.349266] edu_pci 0000:00:03.0: DMA RAM->EDU complete: 64 bytes
+[   53.449674] edu_pci 0000:00:03.0: irq: BDF=0000:00:03.0, irq=23, pending=0x00000100 remaining=0x00000000
+[   53.450356] edu_pci 0000:00:03.0: DMA EDU->RAM complete: 64 bytes
+[   53.453014] edu_pci 0000:00:03.0: DMA round trip verified: 64 bytes
+DMA round-trip OK
+invalid input checks (EINVAL/EFAULT) OK
+~ # echo "exit=$?"
+exit=0
+~ # rmmod edu_pci
+[   70.374890] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
+[   70.379056] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
+```

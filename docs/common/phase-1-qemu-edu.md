@@ -203,7 +203,13 @@ Current progress:
 - `driver/edu/edu_pci.c` exposes a read-only `identification` attribute via
   `pci_driver.dev_groups` (WSL QEMU guest user-verified `0x010000ed` readback
   and removal on `rmmod`).
-- The `/dev/edu0` character device and `ioctl()` interface remain pending.
+- `driver/edu/edu_pci.c` registers `/dev/edu0` via `struct miscdevice` and
+  implements `EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST` in `edu_ioctl()` using
+  `copy_from_user()`, `copy_to_user()`, and `struct mutex` serialization.
+- WSL QEMU guest testing user-verified `/dev/edu0` creation (`10, 258`),
+  `tests/guest/edu_ioctl_test.c` execution (`factorial(6) = 720`, DMA round-trip
+  `OK`, `EINVAL`/`EFAULT` invalid-input checks `OK`, exit `0`), and `/dev/edu0`
+  removal after `rmmod edu_pci`.
 
 ### 7. 실제 driver 형태로 정리 — 예정
 
@@ -225,7 +231,7 @@ PCI binding, BAR, MMIO, IRQ, DMA와 사용자 interface라는 큰 구조는 동�
    -> [complete] liveness/factorial polling
    -> [in progress] IRQ: WSL INTx and MSI verified; Mac parity remains
    -> [in progress] DMA: WSL INTx/MSI and Mac INTx verified; Mac MSI and shared-test gate remain
-   -> [in progress] /dev/edu0 + ioctl (read-only sysfs identification verified on WSL; char dev + ioctl pending)
+   -> [in progress] /dev/edu0 + ioctl: sysfs identification, /dev/edu0 miscdevice, and edu_ioctl_test user-verified on WSL; Mac parity and stress gate remain
    -> [planned] production-style driver cleanup
 ```
 

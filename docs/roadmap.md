@@ -26,11 +26,12 @@ software 쪽 불확실성을 줄인 다음 실제 하드웨어와 Windows로 이
 
 ## Current position
 
-As of 2026-10-18, the project is in **Phase 1-6 user-space interface (`sysfs`)
-and robustness validation**. In addition to the user-verified WSL INTx/MSI DMA
-round-trip and timeout cleanup runs, the driver now exposes a read-only `sysfs`
-`identification` attribute (`dev_groups`) user-verified on WSL across load
-(`0x010000ed`) and `rmmod`.
+As of 2026-10-20, the project is in **Phase 1-6 user-space interface (`sysfs`,
+`/dev/edu0`, and `ioctl`) and robustness validation**. In addition to the
+user-verified WSL INTx/MSI DMA round-trip and timeout cleanup runs, the driver
+exposes a read-only `sysfs` `identification` attribute (`dev_groups`) and a
+`/dev/edu0` `miscdevice` supporting `EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST`
+with `mutex` serialization, user-verified on WSL via `tests/guest/edu_ioctl_test.c`.
 
 - 1-1~1-3: PCI binding, BAR/MMIO, and basic register operations complete.
 - 1-4: INTx/MSI factorial completion and timeout fault injection verified on WSL.
@@ -38,9 +39,11 @@ round-trip and timeout cleanup runs, the driver now exposes a read-only `sysfs`
   mode on Intel macOS and in both INTx and MSI modes on WSL (normal round trip,
   lost-IRQ timeout, and in-flight timeout). Mac MSI parity and the shared-test
   gate remain pending.
-- 1-6: Read-only `sysfs` `identification` attribute (`pci_driver.dev_groups`)
-  implemented and user-verified on WSL. Additional user-space controls and
-  shared guest tests remain pending.
+- 1-6: Read-only `sysfs` `identification` attribute (`pci_driver.dev_groups`),
+  `/dev/edu0` `miscdevice`, and `edu_ioctl()` (`EDU_IOC_FACTORIAL`,
+  `EDU_IOC_DMA_TEST`, `copy_from_user()`/`copy_to_user()`, and `mutex` locking)
+  implemented and user-verified on WSL with `tests/guest/edu_ioctl_test.c`.
+  Repeated load/unload stress and cross-host test runners remain pending.
 - Phase 2 entry gate and cross-host completion via shared tests remain pending.
 
 
@@ -320,6 +323,12 @@ Current progress:
 - WSL QEMU guest testing user-verified `0x010000ed` readback via
   `cat /sys/bus/pci/devices/0000:00:03.0/identification` and automatic removal
   after `rmmod edu_pci`.
+- `driver/edu/edu_pci.c` registers `/dev/edu0` via `struct miscdevice` and
+  handles `EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST` with `mutex` locking and
+  `copy_from_user()`/`copy_to_user()` validation.
+- WSL QEMU guest testing user-verified `tests/guest/edu_ioctl_test.c`
+  (`factorial(6) = 720`, 64-byte DMA round-trip `OK`, `EINVAL` for `13!`, and
+  `EFAULT` for `NULL` pointer, exit `0`) and `/dev/edu0` removal after `rmmod`.
 
 Completion criteria:
 
