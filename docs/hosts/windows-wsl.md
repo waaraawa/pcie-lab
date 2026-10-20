@@ -1109,3 +1109,26 @@ exit=0
 [   70.374890] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
 [   70.379056] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
 ```
+
+After consolidating probe-time and `ioctl` factorial calculation into
+`edu_calc_factorial()`, a 5-iteration stress loop (`insmod` -> `sysfs`
+`identification` -> `/bin/edu_ioctl_test` -> `rmmod`) passed all 5 iterations
+without warnings or resource leaks (**User-verified**):
+
+```text
+~ # for i in 1 2 3 4 5; do
+>   insmod /lib/modules/6.12.101/extra/edu_pci.ko || break
+>   cat /sys/bus/pci/devices/0000:00:03.0/identification || break
+>   /bin/edu_ioctl_test || break
+>   rmmod edu_pci || break
+>   echo "=== iter $i OK ==="
+> done
+...
+0x010000ed
+factorial(6) = 720
+DMA round-trip OK
+invalid input checks (EINVAL/EFAULT) OK
+[   10.671197] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
+[   10.672057] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
+=== iter 5 OK ===
+```

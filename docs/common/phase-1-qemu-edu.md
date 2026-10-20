@@ -211,17 +211,20 @@ Current progress:
   `OK`, `EINVAL`/`EFAULT` invalid-input checks `OK`, exit `0`), and `/dev/edu0`
   removal after `rmmod edu_pci`.
 
-### 7. 실제 driver 형태로 정리 — 예정
+### 7. Production-style driver cleanup — in progress
 
-목표:
+Goal:
 
-- 장치별 state structure와 locking을 적용한다.
-- 모든 probe 실패 지점과 remove cleanup을 검증한다.
-- debug log, timeout과 오류 반환을 정리한다.
+- Apply per-device state structure and locking (`struct edu_device`, `struct mutex`).
+- Consolidate duplicate register/completion logic into shared helpers (`edu_calc_factorial()`).
+- Verify all probe failure points, `remove()` cleanup, and repeated load/unload cycles without resource leaks.
 
-이 단계를 마치면 QEMU EDU 실습은 완료다. 이후 실제 PCIe hardware에서는
-EDU register map 대신 해당 장치 datasheet의 register map을 사용하지만,
-PCI binding, BAR, MMIO, IRQ, DMA와 사용자 interface라는 큰 구조는 동일하다.
+Current progress:
+
+- `edu_probe()` and `edu_ioctl()` now share `edu_calc_factorial()` and `edu_test_dma_round_trip()`, with user-space requests serialized by `edu->lock`.
+- WSL QEMU guest testing user-verified 5 consecutive `insmod` -> `sysfs` `identification` -> `/bin/edu_ioctl_test` -> `rmmod` iterations with zero warnings or resource leaks.
+
+Once this stage and cross-host parity are complete, the QEMU EDU lab is finished. Later physical PCIe hardware uses the device datasheet's register map instead of the EDU register map, but the overall lifecycle—PCI binding, BAR, MMIO, IRQ, DMA, and user-space interface—remains identical.
 
 ## Current position
 
@@ -231,8 +234,8 @@ PCI binding, BAR, MMIO, IRQ, DMA와 사용자 interface라는 큰 구조는 동�
    -> [complete] liveness/factorial polling
    -> [in progress] IRQ: WSL INTx and MSI verified; Mac parity remains
    -> [in progress] DMA: WSL INTx/MSI and Mac INTx verified; Mac MSI and shared-test gate remain
-   -> [in progress] /dev/edu0 + ioctl: sysfs identification, /dev/edu0 miscdevice, and edu_ioctl_test user-verified on WSL; Mac parity and stress gate remain
-   -> [planned] production-style driver cleanup
+   -> [in progress] /dev/edu0 + ioctl: sysfs identification, /dev/edu0 miscdevice, and edu_ioctl_test user-verified on WSL; Mac parity remains
+   -> [in progress] production-style driver cleanup: shared helpers and 5-iteration load/ioctl/unload loop user-verified on WSL; Mac parity remains
 ```
 
 코드를 추가하기 전에 매 단계에서 먼저 다음 세 가지를 확인한다.

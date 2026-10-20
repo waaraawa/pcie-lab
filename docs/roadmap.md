@@ -40,10 +40,12 @@ with `mutex` serialization, user-verified on WSL via `tests/guest/edu_ioctl_test
   lost-IRQ timeout, and in-flight timeout). Mac MSI parity and the shared-test
   gate remain pending.
 - 1-6: Read-only `sysfs` `identification` attribute (`pci_driver.dev_groups`),
-  `/dev/edu0` `miscdevice`, and `edu_ioctl()` (`EDU_IOC_FACTORIAL`,
-  `EDU_IOC_DMA_TEST`, `copy_from_user()`/`copy_to_user()`, and `mutex` locking)
-  implemented and user-verified on WSL with `tests/guest/edu_ioctl_test.c`.
-  Repeated load/unload stress and cross-host test runners remain pending.
+  `/dev/edu0` `miscdevice`, `edu_ioctl()` (`EDU_IOC_FACTORIAL`,
+  `EDU_IOC_DMA_TEST`, `copy_from_user()`/`copy_to_user()`, and `mutex` locking),
+  shared `edu_calc_factorial()` refactoring, and a 5-iteration
+  `insmod`/`sysfs`/`edu_ioctl_test`/`rmmod` stress loop implemented and
+  user-verified on WSL. Cross-host Mac parity and Phase 1-7 PCIe capability
+  inspection remain pending.
 - Phase 2 entry gate and cross-host completion via shared tests remain pending.
 
 
@@ -328,7 +330,9 @@ Current progress:
   `copy_from_user()`/`copy_to_user()` validation.
 - WSL QEMU guest testing user-verified `tests/guest/edu_ioctl_test.c`
   (`factorial(6) = 720`, 64-byte DMA round-trip `OK`, `EINVAL` for `13!`, and
-  `EFAULT` for `NULL` pointer, exit `0`) and `/dev/edu0` removal after `rmmod`.
+  `EFAULT` for `NULL` pointer, exit `0`), `/dev/edu0` removal after `rmmod`, and
+  5 consecutive `insmod` -> `sysfs` -> `/bin/edu_ioctl_test` -> `rmmod` cycles
+  after consolidating `edu_calc_factorial()`.
 
 Completion criteria:
 

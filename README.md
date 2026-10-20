@@ -14,9 +14,9 @@ user-verified normal MSI DMA with three completion interrupts, normal and both
 DMA-timeout cleanup paths, a read-only `sysfs` `identification` attribute
 (`dev_groups`), and a `/dev/edu0` `miscdevice` + `ioctl()` user-space interface
 (`EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST` with `mutex` serialization and
-`-EINVAL`/`-EFAULT` validation via `tests/guest/edu_ioctl_test.c`) across load
-and `rmmod`. Mac MSI parity and the same-revision/shared-test cross-host gate
-remain.
+`-EINVAL`/`-EFAULT` validation via `tests/guest/edu_ioctl_test.c`) across 5
+consecutive load/`sysfs`/`ioctl`/`rmmod` cycles. Mac MSI parity and the
+same-revision/shared-test cross-host gate remain.
 
 ## 학습 순서
 

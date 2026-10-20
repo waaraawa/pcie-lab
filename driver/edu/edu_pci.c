@@ -268,7 +268,11 @@ static int edu_calc_factorial(struct edu_device *edu, u32 input, u32 *result)
 
 	reinit_completion(&edu->factorial_done);
 	writel(EDU_STATUS_IRQFACT, edu->bar0 + EDU_REG_STATUS);
-	writel(input, edu->bar0 + EDU_REG_FACTORIAL);
+
+	if (force_factorial_timeout)
+		dev_info(&edu->pdev->dev, "forcing factorial timeout\n");
+	else
+		writel(input, edu->bar0 + EDU_REG_FACTORIAL);
 
 	if (!wait_for_completion_timeout(&edu->factorial_done, timeout)) {
 		status = readl(edu->bar0 + EDU_REG_STATUS);
@@ -352,11 +356,9 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	void __iomem *bar0;
 	u32 edu_id;
 	u32 liveness;
-	u32 status;
 	u32 factorial;
 	int irq;
 	struct edu_device *edu;
-	unsigned long timeout;
 	unsigned int pci_irq_flags;
 	unsigned long request_irq_flags;
 	const char *irq_mode;
@@ -471,24 +473,9 @@ static int edu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (ret)
 		goto err_free_irq;
 
-	timeout = msecs_to_jiffies(EDU_FACTORIAL_TIMEOUT_MS);
-	reinit_completion(&edu->factorial_done);
-
-	writel(EDU_STATUS_IRQFACT, bar0 + EDU_REG_STATUS);
-
-	if (force_factorial_timeout)
-		dev_info(&pdev->dev, "forcing factorial timeout\n");
-	else
-		writel(EDU_FACTORIAL_INPUT, bar0 + EDU_REG_FACTORIAL);
-
-	if (!wait_for_completion_timeout(&edu->factorial_done, timeout)) {
-		status = readl(bar0 + EDU_REG_STATUS);
-		dev_err(&pdev->dev, "factorial timeout: status=0x%08x\n",
-			status);
-
-		ret = -ETIMEDOUT;
+	ret = edu_calc_factorial(edu, EDU_FACTORIAL_INPUT, &factorial);
+	if (ret)
 		goto err_free_irq;
-	}
 
 	factorial = readl(bar0 + EDU_REG_FACTORIAL);
 	dev_info(&pdev->dev, "factorial: %u! = %u\n", EDU_FACTORIAL_INPUT,
