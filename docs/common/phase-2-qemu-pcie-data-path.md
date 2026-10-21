@@ -65,12 +65,17 @@ educational accelerator-like endpoint, not a production NPU design.
 
 ## Deliverables
 
-- Reproducible QEMU NVMe configuration
+- Reproducible QEMU NVMe configuration (`scripts/wsl/phase2/run-qemu-nvme.sh` and Section 17 of [`docs/hosts/windows-wsl.md`](../hosts/windows-wsl.md))
 - End-to-end initialization and I/O trace notes
 - Queue, interrupt, DMA, and reset diagrams
 - Source navigation and debugging guide
 - Accelerator-host-stack comparison document
 - Optional custom-device specification, implementation, driver, and tests
+
+## Current progress (WSL)
+
+- Reviewed the Linux NVMe PCI driver (`drivers/nvme/host/pci.c` and `include/linux/nvme.h` in Linux 6.12.101) covering SQ/CQ ring structures (`struct nvme_queue` vs. `struct nvme_completion` / `struct nvme_command`), `dma_wmb()`/`dma_rmb()` ordering, Phase-bit toggling (`cq_phase`), SQ/CQ Doorbells, two-stage Admin/I/O queue initialization (`nvme_pci_configure_admin_queue()`, `nvme_setup_io_queues()`), PRP/SGL scatter-gather + `dma_map_sgtable()` Streaming DMA, and two-stage timeout recovery (`nvme_timeout()`).
+- Enabled `CONFIG_BLK_DEV_NVME=y`, added `scripts/wsl/phase2/run-qemu-nvme.sh`, and user-verified `nvme0` initialization (`2/0/0 default/read/poll queues`), MSI-X vectors (`nvme0q0` Admin + `nvme0q1`/`nvme0q2` I/O), per-CPU I/O queue routing (`taskset 1` -> `nvme0q1`, `taskset 2` -> `nvme0q2`), and end-to-end command/completion tracepoints (`nvme_setup_cmd` -> `nvme_sq` `head=3, tail=3` / `head=4, tail=4` in hardirq `d.h1.` -> `nvme_complete_rq`) in the WSL QEMU guest.
 
 ## Completion criteria
 

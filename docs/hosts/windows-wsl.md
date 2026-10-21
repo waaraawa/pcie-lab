@@ -168,36 +168,37 @@ cd /path/to/pcie-lab
 export PCIE_REPO_ROOT=$PWD
 ```
 
-## 4. Git 파일과 local 산출물의 경계
+## 4. Boundary between Git files and local build artifacts
 
-Git으로 공유하는 파일:
+Files tracked in Git:
 
 - `driver/edu/`: canonical Linux driver source
-- `scripts/wsl/`: WSL helper script
-- `docs/`와 `tests/`: 설명과 공통 test
-- `.clang-format`, `.clangd`와 `.vscode/`: source navigation과 formatting 설정
+- `scripts/wsl/`: WSL helper scripts (`phase1/` and `phase2/`)
+- `docs/` and `tests/`: documentation and shared tests
+- `.clang-format`, `.clangd`, and `.vscode/`: source navigation and formatting configuration
 
-이 컴퓨터에서만 생성하는 파일:
+Files generated locally on each host (gitignored):
 
-- `local/wsl/linux-6.12.101/`: kernel source와 build output
-- `local/wsl/initramfs/`: unpacked initramfs
-- `local/wsl/initramfs.cpio.gz`: QEMU에 전달할 archive
-- `driver/edu/edu_pci.ko`와 module build output
+- `local/wsl/linux-6.12.101/`: kernel source and build output (`vmlinux`, `bzImage`)
+- `local/wsl/initramfs/`: unpacked initramfs root directory
+- `local/wsl/initramfs.cpio.gz`: initramfs archive passed to QEMU
+- `local/wsl/nvme.img`: 64 MiB raw backing image for the Phase 2 QEMU NVMe device
+- `driver/edu/edu_pci.ko` and module build output
 - root `compile_commands.json`
 
-이 local 산출물은 `.gitignore` 대상이다. 다른 guest kernel용 `.ko`를 복사해
-재사용하지 말고, 해당 kernel build tree로 다시 build한다.
+These local artifacts are excluded via `.gitignore`. Never copy a `.ko` built
+for another guest kernel; always rebuild against the local kernel build tree.
 
-## 5. Linux 6.12.101 준비
+## 5. Preparing Linux 6.12.101
 
-### 목표
+### Objective
 
-QEMU가 실행할 `bzImage`, GDB가 읽을 symbol-bearing `vmlinux`와 외부 module
-build에 사용할 정확히 같은 kernel tree를 만든다.
+Build `bzImage` for QEMU, symbol-bearing `vmlinux` for GDB, and the exact
+matching kernel tree for out-of-tree module builds.
 
-### 5.1 Source 다운로드와 checksum 확인
+### 5.1 Download source and verify checksum
 
-실행 위치: repository root
+Working directory: repository root
 
 ```bash
 mkdir -p local/wsl
@@ -215,22 +216,22 @@ tar -xf linux-6.12.101.tar.xz
 cd $PCIE_REPO_ROOT
 ```
 
-정상 결과:
+Expected output:
 
 ```text
 linux-6.12.101.tar.xz: OK
 ```
 
-확인:
+Verify:
 
 ```bash
 test -f local/wsl/linux-6.12.101/Makefile &&
     echo "OK: kernel source"
 ```
 
-### 5.2 Kernel configuration 생성
+### 5.2 Generate kernel configuration
 
-실행 위치: kernel tree
+Working directory: kernel tree
 
 ```bash
 cd $PCIE_REPO_ROOT/local/wsl/linux-6.12.101
@@ -245,6 +246,7 @@ scripts/config --enable MODULES
 scripts/config --enable MODULE_UNLOAD
 scripts/config --enable PCI
 scripts/config --enable PCI_MSI
+scripts/config --enable BLK_DEV_NVME
 scripts/config --enable SERIAL_8250
 scripts/config --enable SERIAL_8250_CONSOLE
 scripts/config --enable KALLSYMS
@@ -258,23 +260,24 @@ scripts/config --enable GDB_SCRIPTS
 make olddefconfig
 ```
 
-필수 설정 확인:
+Verify required options:
 
 ```bash
 grep -E \
-'^(CONFIG_BLK_DEV_INITRD|CONFIG_RD_GZIP|CONFIG_DEVTMPFS|CONFIG_MODULES|CONFIG_MODULE_UNLOAD|CONFIG_PCI|CONFIG_PCI_MSI|CONFIG_SERIAL_8250_CONSOLE|CONFIG_KALLSYMS_ALL|CONFIG_DEBUG_INFO|CONFIG_DEBUG_INFO_DWARF5|CONFIG_GDB_SCRIPTS)=y' \
+'^(CONFIG_BLK_DEV_INITRD|CONFIG_RD_GZIP|CONFIG_DEVTMPFS|CONFIG_MODULES|CONFIG_MODULE_UNLOAD|CONFIG_PCI|CONFIG_PCI_MSI|CONFIG_BLK_DEV_NVME|CONFIG_SERIAL_8250_CONSOLE|CONFIG_KALLSYMS_ALL|CONFIG_DEBUG_INFO|CONFIG_DEBUG_INFO_DWARF5|CONFIG_GDB_SCRIPTS)=y' \
 .config
 
 grep CONFIG_DEBUG_INFO_NONE .config
 ```
 
-두 번째 명령의 정상 결과:
+Expected output of the second command:
 
 ```text
 # CONFIG_DEBUG_INFO_NONE is not set
 ```
 
-필수 항목이 `=y`가 아니면 build 전에 설정 문제를 해결한다.
+If any required option is not `=y`, resolve the configuration issue before
+building.
 
 ### 5.3 Kernel build
 
@@ -1131,4 +1134,123 @@ invalid input checks (EINVAL/EFAULT) OK
 [   10.671197] edu_pci 0000:00:03.0: remove: BDF=0000:00:03.0
 [   10.672057] edu_pci 0000:00:03.0: DMA idle before teardown: command=0x00000006
 === iter 5 OK ===
+```
+
+### PCI vs. PCIe configuration space and capability inspection (2026-10-21)
+
+Learner-provided guest output compared `0000:00:03.0` (`edu`, 256-byte config
+space, Capability Pointer `0x34 -> 0x40` with `0x05` MSI only) against a
+QEMU `pcie-root-port` at `0000:00:04.0` (4096-byte ECAM config space,
+`0x34 -> 0x54 (0x10 PCIe) -> 0x48 (0x11 MSI-X) -> 0x40 (0x0d) -> 0x00`,
+`LnkCap`/`LnkSta` encoding `16.0 GT/s` `x32`, and Extended Capability `0x0001`
+AER at `0x100`) (**User-verified**):
+
+```text
+~ # wc -c /sys/bus/pci/devices/0000:00:03.0/config
+256 /sys/bus/pci/devices/0000:00:03.0/config
+~ # grep . /sys/bus/pci/devices/0000:00:04.0/*link* /sys/bus/pci/devices/0000:00:03.0/*link*
+/sys/bus/pci/devices/0000:00:04.0/current_link_speed:16.0 GT/s PCIe
+/sys/bus/pci/devices/0000:00:04.0/current_link_width:32
+/sys/bus/pci/devices/0000:00:04.0/max_link_speed:16.0 GT/s PCIe
+/sys/bus/pci/devices/0000:00:04.0/max_link_width:32
+```
+
+## 17. Phase 2 QEMU NVMe setup and validation
+
+### 17.1 Enable `CONFIG_BLK_DEV_NVME` on an existing kernel tree
+
+If `local/wsl/linux-6.12.101/.config` was generated during Phase 1 before
+`CONFIG_BLK_DEV_NVME` was added to Section 5.2, enable it from the repository
+root and perform an incremental build:
+
+```bash
+./local/wsl/linux-6.12.101/scripts/config \
+    --file local/wsl/linux-6.12.101/.config \
+    -e PCI_MSI \
+    -e BLK_DEV_NVME
+make -C local/wsl/linux-6.12.101 olddefconfig
+make -C local/wsl/linux-6.12.101 -j"$(nproc)" bzImage vmlinux
+```
+
+If out-of-tree modules (`driver/edu/edu_pci.ko`) will also be loaded under the
+rebuilt kernel, rebuild and refresh the initramfs so module symbols/vermagic
+stay synchronized:
+
+```bash
+make -C driver/edu
+scripts/wsl/phase1/update-initramfs.sh
+scripts/wsl/phase1/update-initramfs.sh --check
+```
+
+### 17.2 Launch QEMU with the Phase 2 NVMe script
+
+`scripts/wsl/phase2/run-qemu-nvme.sh` automatically creates a 64 MiB raw disk
+image at `local/wsl/nvme.img` if it does not exist, attaches it as a QEMU NVMe
+controller (`-drive file=...,format=raw,if=none,id=nvme0 -device nvme,serial=deadbeef,drive=nvme0`),
+and boots the guest:
+
+```bash
+scripts/wsl/phase2/run-qemu-nvme.sh --check
+scripts/wsl/phase2/run-qemu-nvme.sh
+```
+
+### 17.3 Verify NVMe queues, MSI-X affinity, and tracepoints in the guest
+
+In the guest shell (`~ #`):
+
+```sh
+dmesg | grep -i nvme
+grep nvme /proc/interrupts
+
+taskset 1 dd if=/dev/zero of=/dev/nvme0n1 bs=4k count=1 conv=fsync 2>/dev/null
+grep nvme /proc/interrupts
+
+taskset 2 dd if=/dev/zero of=/dev/nvme0n1 bs=4k count=1 conv=fsync 2>/dev/null
+grep nvme /proc/interrupts
+```
+
+Learner-verified WSL output (2026-10-21):
+
+```text
+~ # dmesg | grep -i nvme
+[    1.203957] nvme nvme0: pci function 0000:00:04.0
+[    1.219349] nvme nvme0: 2/0/0 default/read/poll queues
+[    1.222728] nvme nvme0: Ignoring bogus Namespace Identifiers
+~ # grep nvme /proc/interrupts
+ 24:          0         12  PCI-MSIX-0000:00:04.0   0-edge      nvme0q0
+ 26:          1          0  PCI-MSIX-0000:00:04.0   1-edge      nvme0q1
+ 27:          0          0  PCI-MSIX-0000:00:04.0   2-edge      nvme0q2
+~ # taskset 1 dd if=/dev/zero of=/dev/nvme0n1 bs=4k count=1 conv=fsync 2>/dev/null
+~ # grep nvme /proc/interrupts
+ 24:          0         12  PCI-MSIX-0000:00:04.0   0-edge      nvme0q0
+ 26:          3          0  PCI-MSIX-0000:00:04.0   1-edge      nvme0q1
+ 27:          0          0  PCI-MSIX-0000:00:04.0   2-edge      nvme0q2
+~ # taskset 2 dd if=/dev/zero of=/dev/nvme0n1 bs=4k count=1 conv=fsync 2>/dev/null
+~ # grep nvme /proc/interrupts
+ 24:          0         12  PCI-MSIX-0000:00:04.0   0-edge      nvme0q0
+ 26:          3          0  PCI-MSIX-0000:00:04.0   1-edge      nvme0q1
+ 27:          0          2  PCI-MSIX-0000:00:04.0   2-edge      nvme0q2
+```
+
+To trace individual NVMe commands (`nvme_setup_cmd`, `nvme_sq`,
+`nvme_complete_rq`) in the guest:
+
+```sh
+mount -t tracefs tracefs /sys/kernel/tracing 2>/dev/null
+echo 0 > /sys/kernel/tracing/trace
+echo 1 > /sys/kernel/tracing/events/nvme/enable
+taskset 2 dd if=/dev/zero of=/dev/nvme0n1 bs=4k count=1 conv=fsync 2>/dev/null
+cat /sys/kernel/tracing/trace
+```
+
+Learner-verified WSL trace output (2026-10-21):
+
+```text
+#           TASK-PID     CPU#  |||||  TIMESTAMP  FUNCTION
+              dd-94      [001] .....  1471.972828: nvme_setup_cmd: nvme0: disk=nvme0n1, qid=2, cmdid=65, nsid=1, flags=0x0, meta=0x0, cmd=(nvme_cmd_write ...)
+          <idle>-0       [001] d.h1.  1471.973660: nvme_sq: nvme0: disk=nvme0n1, qid=2, head=3, tail=3
+          <idle>-0       [001] d.h1.  1471.973762: nvme_complete_rq: nvme0: disk=nvme0n1, qid=2, cmdid=65, res=0x0, retries=0, flags=0x0, status=0x0
+    kworker/1:1H-42      [001] .....  1471.973957: nvme_setup_cmd: nvme0: disk=nvme0n1, qid=2, cmdid=4161, nsid=1, flags=0x0, meta=0x0, cmd=(nvme_cmd_flush ...)
+          <idle>-0       [001] d.h1.  1471.975397: nvme_sq: nvme0: disk=nvme0n1, qid=2, head=4, tail=4
+          <idle>-0       [001] d.h1.  1471.975446: nvme_complete_rq: nvme0: disk=nvme0n1, qid=2, cmdid=4161, res=0x0, retries=0, flags=0x0, status=0x0
 ```

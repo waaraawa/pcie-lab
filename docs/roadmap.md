@@ -26,12 +26,17 @@ software 쪽 불확실성을 줄인 다음 실제 하드웨어와 Windows로 이
 
 ## Current position
 
-As of 2026-10-20, the project is in **Phase 1-6 user-space interface (`sysfs`,
-`/dev/edu0`, and `ioctl`) and robustness validation**. In addition to the
-user-verified WSL INTx/MSI DMA round-trip and timeout cleanup runs, the driver
-exposes a read-only `sysfs` `identification` attribute (`dev_groups`) and a
-`/dev/edu0` `miscdevice` supporting `EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST`
-with `mutex` serialization, user-verified on WSL via `tests/guest/edu_ioctl_test.c`.
+As of 2026-10-21, **Phase 1 (QEMU EDU and PCIe capability comparison) is complete
+on WSL** and the project is advancing to **Phase 2 (QEMU NVMe PCIe data path)**.
+In addition to the user-verified WSL INTx/MSI DMA round-trip and timeout cleanup
+runs, the driver exposes a read-only `sysfs` `identification` attribute
+(`dev_groups`) and a `/dev/edu0` `miscdevice` supporting `EDU_IOC_FACTORIAL` and
+`EDU_IOC_DMA_TEST` with `mutex` serialization, user-verified on WSL via
+`tests/guest/edu_ioctl_test.c`. Roadmap 1-7 compared `edu` (`0000:00:03.0`,
+256-byte conventional PCI config space with MSI `0x05` only) against a PCIe Root
+Port (`0000:00:04.0`, 4096-byte ECAM config space with PCIe Cap `0x10`,
+`16.0 GT/s` `x32` `LnkCap`/`LnkSta`, MSI-X `0x11`, and Extended Cap `0x0001`
+AER).
 
 - 1-1~1-3: PCI binding, BAR/MMIO, and basic register operations complete.
 - 1-4: INTx/MSI factorial completion and timeout fault injection verified on WSL.
@@ -44,9 +49,13 @@ with `mutex` serialization, user-verified on WSL via `tests/guest/edu_ioctl_test
   `EDU_IOC_DMA_TEST`, `copy_from_user()`/`copy_to_user()`, and `mutex` locking),
   shared `edu_calc_factorial()` refactoring, and a 5-iteration
   `insmod`/`sysfs`/`edu_ioctl_test`/`rmmod` stress loop implemented and
-  user-verified on WSL. Cross-host Mac parity and Phase 1-7 PCIe capability
-  inspection remain pending.
-- Phase 2 entry gate and cross-host completion via shared tests remain pending.
+  user-verified on WSL.
+- 1-7: Conventional PCI vs. PCIe configuration space, capability linked list
+  (`0x05` MSI vs. `0x10` PCIe / `0x11` MSI-X / `0x100` AER), Link Status
+  (`16.0 GT/s`, `x32`), and driver-facing PCIe APIs reviewed and user-verified on
+  WSL.
+- Phase 2 (QEMU NVMe PCIe data path) is starting on WSL; cross-host Mac parity
+  remains pending.
 
 
 ### 단계 0 — 커널 디버깅 실습 환경 구축
@@ -339,20 +348,32 @@ Completion criteria:
 - User space invokes device functionality through the driver interface.
 - Repeated load/unload and fault injection produce no resource leaks.
 
-### 1-7. PCIe 전용 기능
+### 1-7. PCIe-specific features
 
-- PCI와 PCIe configuration/capability 차이
-- Root Complex, Root Port, Endpoint 토폴로지
-- PCIe capability 탐색과 link speed/width 확인
-- MSI-X와 여러 interrupt vector
-- AER와 error recovery callback
-- ASPM, D-state, reset/FLR
-- 실제 하드웨어가 지원하면 SR-IOV 기초
+- Conventional PCI vs. PCIe configuration space and capability differences
+- Root Complex, Root Port, and Endpoint topology
+- PCIe capability discovery and link speed/width inspection
+- MSI-X and multiple interrupt vectors
+- AER and error recovery callbacks
+- ASPM, D-states, and reset/FLR
+- SR-IOV basics (when supported by hardware)
 
-완료 조건:
+Current progress:
 
-- conventional PCI 공통 기능과 PCIe 전용 기능을 구분해 설명할 수 있다.
-- 실제 장치의 PCIe capability와 현재 link 상태를 읽고 해석할 수 있다.
+- WSL QEMU guest inspection compared `0000:00:03.0` (`edu`, 256-byte config space
+  with Capability `0x05` MSI at `0x40` and no `*link*` attributes) against
+  `0000:00:04.0` (`pcie-root-port`, 4096-byte ECAM config space with Capability
+  `0x10` PCIe at `0x54`, `LnkCap`/`LnkSta` encoding `16.0 GT/s` Gen4 `x32`,
+  Capability `0x11` MSI-X at `0x48`, and Extended Capability `0x0001` AER at
+  `0x100`).
+- Reviewed how Linux PCIe drivers interact with these features in C
+  (`pcie_capability_read_word()`, `pci_alloc_irq_vectors(..., PCI_IRQ_MSIX)`,
+  `pci_reset_function()` for FLR, and `struct pci_error_handlers` for AER).
+
+Completion criteria:
+
+- Distinguish shared conventional PCI lifecycle APIs from PCIe-specific features.
+- Read and interpret PCIe capabilities and current link state on a PCIe device.
 
 ## 단계 2 — QEMU PCIe 데이터 경로
 
