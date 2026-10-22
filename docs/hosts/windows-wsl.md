@@ -461,6 +461,25 @@ clangd \
 - root `compile_commands.json`이 생성된다.
 - clangd가 error 없이 종료한다.
 
+### 7.1 Build the guest user-space test (`edu_ioctl_test`)
+
+Working directory: repository root
+
+The guest has no libc, so build the shared test as a static binary directly
+into the unpacked initramfs root. `update-initramfs.sh` in the next section
+packs it into the archive as `/bin/edu_ioctl_test`.
+
+```bash
+gcc -static -O2 -Wall \
+    -o local/wsl/initramfs/bin/edu_ioctl_test \
+    tests/guest/edu_ioctl_test.c
+
+file local/wsl/initramfs/bin/edu_ioctl_test
+```
+
+Expected: `ELF 64-bit LSB executable, x86-64 ... statically linked`.
+Rebuild it whenever `tests/guest/edu_ioctl_test.c` or the `ioctl` ABI changes.
+
 ## 8. Module을 initramfs에 반영
 
 ### 목표
