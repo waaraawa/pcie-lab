@@ -3,20 +3,22 @@
 Linux에서 시작해 QEMU PCI 장치, 실제 PCIe 하드웨어, Windows KMDF까지 이어지는
 실습 중심 PCI/PCIe driver 학습 repository다.
 
-The canonical implementation is the QEMU EDU Linux driver under `driver/edu/`.
-Windows/WSL has verified binding, BAR0/MMIO, identification, liveness, one-shot
-INTx, interrupt-driven factorial completion, controlled timeout cleanup, and a
-one-vector MSI mode with verified bus-master lifecycle. The driver also
-negotiates the EDU 28-bit DMA mask and allocates a coherent buffer with verified
-normal and probe-failure cleanup. IRQ-driven 64-byte bidirectional DMA and
-DMA timeout cleanup have user-verified INTx results on both hosts. WSL also
-user-verified normal MSI DMA with three completion interrupts, normal and both
-DMA-timeout cleanup paths, a read-only `sysfs` `identification` attribute
-(`dev_groups`), and a `/dev/edu0` `miscdevice` + `ioctl()` user-space interface
-(`EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST` with `mutex` serialization and
-`-EINVAL`/`-EFAULT` validation via `tests/guest/edu_ioctl_test.c`) across 5
-consecutive load/`sysfs`/`ioctl`/`rmmod` cycles. Mac MSI parity and the
-same-revision/shared-test cross-host gate remain.
+The canonical Phase 1 implementation is the QEMU EDU Linux driver under
+`driver/edu/`. Windows/WSL has verified binding, BAR0/MMIO, identification,
+liveness, one-shot INTx, interrupt-driven factorial completion, controlled
+timeout cleanup, and a one-vector MSI mode with verified bus-master lifecycle.
+The driver also negotiates the EDU 28-bit DMA mask and allocates a coherent
+buffer with verified normal and probe-failure cleanup. IRQ-driven 64-byte
+bidirectional DMA and DMA timeout cleanup have user-verified INTx results on both
+hosts. WSL also user-verified normal MSI DMA with three completion interrupts,
+normal and both DMA-timeout cleanup paths, a read-only `sysfs` `identification`
+attribute (`dev_groups`), and a `/dev/edu0` `miscdevice` + `ioctl()` user-space
+interface (`EDU_IOC_FACTORIAL` and `EDU_IOC_DMA_TEST` with `mutex` serialization
+and `-EINVAL`/`-EFAULT` validation via `tests/guest/edu_ioctl_test.c`) across 5
+consecutive load/`sysfs`/`ioctl`/`rmmod` cycles, plus Phase 2 QEMU NVMe multi-queue
+data-path, MSI-X affinity, end-to-end I/O ftrace, and controller reset
+(`reset_controller`) analysis. Phase 3 physical hardware setup and Mac cross-host
+parity remain next.
 
 ## 학습 순서
 

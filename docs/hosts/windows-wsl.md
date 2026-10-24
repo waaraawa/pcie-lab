@@ -1273,3 +1273,28 @@ Learner-verified WSL trace output (2026-10-21):
           <idle>-0       [001] d.h1.  1471.975397: nvme_sq: nvme0: disk=nvme0n1, qid=2, head=4, tail=4
           <idle>-0       [001] d.h1.  1471.975446: nvme_complete_rq: nvme0: disk=nvme0n1, qid=2, cmdid=4161, res=0x0, retries=0, flags=0x0, status=0x0
 ```
+
+To trace Admin queue (`qid=0`) teardown and re-initialization across a controller reset (`echo 1 > /sys/class/nvme/nvme0/reset_controller`), learner-verified on WSL (2026-10-24):
+
+```text
+    kworker/u8:8-69      [001] .....   151.259604: nvme_setup_cmd: nvme0: qid=0, cmdid=16401, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_delete_sq sqid=2)
+    kworker/u8:8-69      [001] .....   151.259988: nvme_setup_cmd: nvme0: qid=0, cmdid=16402, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_delete_sq sqid=1)
+    kworker/u8:8-69      [001] .....   151.260175: nvme_setup_cmd: nvme0: qid=0, cmdid=16403, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_delete_cq cqid=2)
+    kworker/u8:8-69      [001] .....   151.260205: nvme_setup_cmd: nvme0: qid=0, cmdid=20496, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_delete_cq cqid=1)
+    kworker/u8:8-69      [001] .....   151.270483: nvme_setup_cmd: nvme0: qid=0, cmdid=20497, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=1, ctrlid=0)
+    kworker/u8:8-69      [001] .....   151.270632: nvme_setup_cmd: nvme0: qid=0, cmdid=20498, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_set_features fid=0xe, sv=0x0, cdw11=0x0)
+    kworker/u8:8-69      [001] .....   151.270739: nvme_setup_cmd: nvme0: qid=0, cmdid=24592, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_set_features fid=0x16, sv=0x0, cdw11=0x0)
+    kworker/u8:8-69      [001] .....   151.270872: nvme_setup_cmd: nvme0: qid=0, cmdid=24593, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_set_features fid=0x7, sv=0x0, cdw11=0x10001)
+    kworker/u8:8-69      [001] .....   151.271407: nvme_setup_cmd: nvme0: qid=0, cmdid=24594, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_create_cq cqid=1, qsize=1023, cq_flags=0x3, irq_vector=1)
+    kworker/u8:8-69      [001] .....   151.271506: nvme_setup_cmd: nvme0: qid=0, cmdid=20499, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_create_sq sqid=1, qsize=1023, sq_flags=0x1, cqid=1)
+    kworker/u8:8-69      [001] .....   151.271721: nvme_setup_cmd: nvme0: qid=0, cmdid=28688, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_create_cq cqid=2, qsize=1023, cq_flags=0x3, irq_vector=2)
+    kworker/u8:8-69      [001] .....   151.271803: nvme_setup_cmd: nvme0: qid=0, cmdid=28689, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_create_sq sqid=2, qsize=1023, sq_flags=0x1, cqid=2)
+    kworker/u8:8-69      [001] .....   151.273440: nvme_setup_cmd: nvme0: qid=0, cmdid=28690, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_dbbuf cdw10=00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00)
+    kworker/u8:8-69      [001] .....   151.273722: nvme_setup_cmd: nvme0: qid=0, cmdid=24595, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_set_features fid=0xb, sv=0x0, cdw11=0x100)
+    kworker/u8:7-68      [000] .....   151.273936: nvme_setup_cmd: nvme0: qid=0, cmdid=24, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=6, ctrlid=0)
+    kworker/u8:7-68      [000] .....   151.274381: nvme_setup_cmd: nvme0: qid=0, cmdid=25, nsid=0, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=2, ctrlid=0)
+    kworker/u8:8-69      [001] .....   151.274966: nvme_setup_cmd: nvme0: qid=0, cmdid=32784, nsid=1, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=3, ctrlid=0)
+    kworker/u8:8-69      [001] .....   151.275362: nvme_setup_cmd: nvme0: qid=0, cmdid=32785, nsid=1, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=0, ctrlid=0)
+    kworker/u8:8-69      [001] .....   151.275749: nvme_setup_cmd: nvme0: qid=0, cmdid=32786, nsid=1, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=0, ctrlid=0)
+    kworker/u8:8-69      [001] .....   151.275847: nvme_setup_cmd: nvme0: qid=0, cmdid=28691, nsid=1, flags=0x0, meta=0x0, cmd=(nvme_admin_identify cns=5, ctrlid=0)
+```

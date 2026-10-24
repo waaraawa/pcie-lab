@@ -42,7 +42,9 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | MSI DMA lost-IRQ timeout cleanup | Pending | User-verified (2026-10-14): MSI timeout command/pending zero, idle log, probe `-110`, reported insmod exit 0, post-probe Command `0x0103` clears BME/INTx-disable; binding/BAR/IRQ absent before rmmod, unbound module present, rmmod exit 0 and final module absence observed | Pending Mac parity and formal gate |
 | MSI DMA in-flight timeout idle wait | Pending | User-verified (2026-10-14): timeout/idle wait `0x05`, idle `0x04`, probe `-110`, reported insmod exit 0, post-probe Command `0x0103`; no late ISR log; binding/BAR/IRQ absent before rmmod, unbound module present, rmmod exit 0 and final module absence observed | Pending Mac parity and formal gate |
 | User-space validation | Pending | User-verified (2026-10-18, 2026-10-20): read-only `sysfs` `identification` returned `0x010000ed`; `/dev/edu0` `miscdevice` (`10, 258`) and `tests/guest/edu_ioctl_test.c` (`factorial(6) = 720`, DMA round trip, `EINVAL`/`EFAULT`, exit `0`) passed across 5 consecutive `insmod`/`sysfs`/`ioctl`/`rmmod` cycles | Pending Mac parity |
-| Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs checks passed on 2026-10-18 | Host-local only |
+| Phase 1-7 PCIe capability/link inspection | Pending | User-verified (2026-10-21): `edu` (`256B` PCI config space, `0x05` MSI) vs. `pcie-root-port` (`4096B` ECAM config space, `0x10` PCIe `16.0 GT/s` `x32`, `0x11` MSI-X, `0x0001` AER) | Pending Mac parity |
+| Phase 2 QEMU NVMe queue/MSI-X/trace/reset | Pending | User-verified (2026-10-21, 2026-10-22, 2026-10-24): `2/0/0` I/O queues, `nvme0q0`/`q1`/`q2` MSI-X vectors, per-CPU `taskset` routing, end-to-end `dd` `nvme_setup_cmd` -> `nvme_sq` -> `nvme_complete_rq` trace, and 20-command `reset_controller` Admin teardown/re-init trace | Pending Mac parity |
+| Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs checks passed on 2026-10-22 | Host-local only |
 
 ## Cross-host completion rules
 

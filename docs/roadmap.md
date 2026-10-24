@@ -26,10 +26,13 @@ software 쪽 불확실성을 줄인 다음 실제 하드웨어와 Windows로 이
 
 ## Current position
 
-As of 2026-10-21, **Phase 1 (QEMU EDU and PCIe capability comparison) is complete
-on WSL** and the project is advancing to **Phase 2 (QEMU NVMe PCIe data path)**.
+As of 2026-10-24, **Phase 1 (QEMU EDU and PCIe capability comparison) and Phase 2
+(QEMU NVMe PCIe data path) are complete on WSL**, and the project is preparing for
+**Phase 3 (Physical PCIe hardware Linux driver)** pending physical PC and endpoint
+acquisition.
+
 In addition to the user-verified WSL INTx/MSI DMA round-trip and timeout cleanup
-runs, the driver exposes a read-only `sysfs` `identification` attribute
+runs, the Phase 1 driver exposes a read-only `sysfs` `identification` attribute
 (`dev_groups`) and a `/dev/edu0` `miscdevice` supporting `EDU_IOC_FACTORIAL` and
 `EDU_IOC_DMA_TEST` with `mutex` serialization, user-verified on WSL via
 `tests/guest/edu_ioctl_test.c`. Roadmap 1-7 compared `edu` (`0000:00:03.0`,
@@ -54,7 +57,12 @@ AER).
   (`0x05` MSI vs. `0x10` PCIe / `0x11` MSI-X / `0x100` AER), Link Status
   (`16.0 GT/s`, `x32`), and driver-facing PCIe APIs reviewed and user-verified on
   WSL.
-- Phase 2 (QEMU NVMe PCIe data path) is starting on WSL; cross-host Mac parity
+- Phase 2 (QEMU NVMe PCIe data path): Complete on WSL. Reviewed Linux 6.12.101
+  `drivers/nvme/host/pci.c` and `core.c`, verified per-CPU I/O queues and MSI-X
+  vectors (`nvme0q0`/`q1`/`q2`), captured end-to-end I/O and controller-reset
+  (`reset_controller`) ftrace sequences, documented the `edu` vs. NVMe vs. AI/NPU
+  accelerator architecture comparison, and decided to skip the optional custom
+  QEMU queue device in favor of Phase 3 physical hardware. Cross-host Mac parity
   remains pending.
 
 
@@ -375,17 +383,18 @@ Completion criteria:
 - Distinguish shared conventional PCI lifecycle APIs from PCIe-specific features.
 - Read and interpret PCIe capabilities and current link state on a PCIe device.
 
-## 단계 2 — QEMU PCIe 데이터 경로
+## Phase 2 — QEMU PCIe Data Path: Complete (WSL)
 
-EDU의 단순 register/DMA 모델 다음에는 QEMU NVMe를 이용해 submission queue,
-completion queue, doorbell, MSI-X, timeout과 controller reset을 추적한다. 전체
-학습 범위와 완료 조건은
-[`phase-2-qemu-pcie-data-path.md`](common/phase-2-qemu-pcie-data-path.md)에
-있다.
+Following Phase 1's register/DMA model on `edu`, Phase 2 traced submission
+queues, completion queues, doorbells, MSI-X, timeout handling, and controller
+reset using QEMU NVMe and the Linux 6.12.101 NVMe driver. Full scope,
+architecture comparison (`edu` vs. NVMe vs. AI/NPU accelerator host stack), and
+completion records are in
+[`phase-2-qemu-pcie-data-path.md`](common/phase-2-qemu-pcie-data-path.md) and
+Section 17 of [`windows-wsl.md`](hosts/windows-wsl.md).
 
-NVMe driver 전체를 다시 구현하는 것이 목표는 아니다. 사용자 공간 I/O 한 건이
-Linux queue에 들어가 QEMU device에서 처리되고 interrupt/completion으로 돌아오는
-구조를 end-to-end로 이해하는 것이 목표다.
+The optional custom QEMU queue device was intentionally skipped because Phase 3
+moves directly to physical PCIe hardware.
 
 ## 단계 3 — 실제 PCIe 하드웨어 Linux 드라이버
 
@@ -441,13 +450,11 @@ Linux와 Windows API 이름은 다르지만 다음 하드웨어 지식은 그대
 
 ## Next steps
 
-1. Expand the Phase 1-6 user-space interface and add repeated load/unload
-   validation.
-2. Implement shared guest tests in `tests/guest/` and acceptance criteria in
-   `tests/expected/`.
-3. Complete Intel macOS MSI DMA validation to close the cross-host parity gap.
-4. Complete the Intel macOS matching `vmlinux`/remote-GDB path and document the
-   lack of an overall teardown deadline when DMA remains permanently busy.
+1. Acquire and set up the physical x86 Linux test PC and PCIe endpoint hardware
+   according to [`phase-3-physical-hardware.md`](common/phase-3-physical-hardware.md).
+2. Complete Intel macOS MSI DMA, `edu_ioctl_test`, and matching `vmlinux`/GDB
+   validation when returning to the macOS host to close the cross-host parity gap.
+3. Document or bound permanent-DMA-busy teardown retry behavior if revisited.
 
 ## 참고 문서
 
