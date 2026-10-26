@@ -82,7 +82,21 @@ reference design that exposes BAR, legacy/MSI/MSI-X, and DMA tests.
 - The remaining gap to an AI/NPU production host stack is explicitly
   documented.
 
-## Out of scope until hardware selection
+## Selected physical lab hardware and pre-arrival preparation (2026-10-26)
+
+- **Target x86 Linux host motherboard**: **ASUS PRIME B760M-A D4**
+  - Storage: SATA SSD (supported built-in by `CONFIG_SATA_AHCI=y`)
+  - Network: Onboard Realtek 2.5GbE (supported built-in by `CONFIG_R8169=y`)
+  - Serial console / `kgdb`: Onboard COM1 header (`0x3f8` / IRQ 4, `ttyS0`, supported built-in by `CONFIG_SERIAL_8250=y`, `CONFIG_SERIAL_8250_PNP=y`, `CONFIG_SERIAL_8250_CONSOLE=y`; configure GRUB with `console=tty0 console=ttyS0,115200n8 kgdboc=ttyS0,115200`)
+- **Primary PCIe x1 Endpoint (Steps 1–4)**: **WCH CH382L dual serial port card**
+  - PCI IDs (`include/linux/pci_ids.h:2592`): Vendor `0x1c00` (`PCI_VENDOR_ID_WCHIC`), Device `0x3253` (`PCI_DEVICE_ID_WCHIC_CH382_2S`) or `0x3250` (`CH382_2S1P`)
+  - In-tree Linux reference (`drivers/tty/serial/8250/8250_pci.c` `pbn_wch382_2`): `BAR0`, `num_ports = 2`, `first_offset = 0xC0` (Port 0 at `BAR0 + 0xC0`, Port 1 at `BAR0 + 0xC8`, `uart_offset = 8`, `base_baud = 115200`)
+  - Scope: physical PCIe x1 link/enumeration, 4 KiB ECAM configuration space & capabilities, BAR0 mapping, register I/O, and hardware TX/RX loopback IRQ between Port 0 and Port 1 (a separate bus-master PCIe NIC or secondary NVMe endpoint can be used for Step 5 DMA/IOMMU)
+- **Target debug kernel & `.deb` packages prepared on WSL**:
+  - `scripts/wsl/phase3/configure-debug-kernel.sh`: enables `CONFIG_KGDB=y`, `CONFIG_KGDB_SERIAL_CONSOLE=y`, `CONFIG_KGDB_KDB=y`, `CONFIG_DMA_API_DEBUG=y`, `CONFIG_PCIEAER=y`, and `CONFIG_PCI_DEBUG=y`
+  - `scripts/wsl/phase3/build-deb-kernel.sh`: builds `local/wsl/linux-image-6.12.101_6.12.101-6_amd64.deb` and `local/wsl/linux-headers-6.12.101_6.12.101-6_amd64.deb` via `make bindeb-pkg` while keeping the matching 374 MiB `local/wsl/linux-6.12.101/vmlinux` on the WSL host for remote `kgdb`
+
+## Out of scope until hardware assembly
 
 - Board-specific commands and wiring
 - Vendor-specific FPGA or SoC tool flows

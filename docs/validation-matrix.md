@@ -44,7 +44,8 @@ in [`hosts/windows-wsl.md`](hosts/windows-wsl.md).
 | User-space validation | Pending | User-verified (2026-10-18, 2026-10-20): read-only `sysfs` `identification` returned `0x010000ed`; `/dev/edu0` `miscdevice` (`10, 258`) and `tests/guest/edu_ioctl_test.c` (`factorial(6) = 720`, DMA round trip, `EINVAL`/`EFAULT`, exit `0`) passed across 5 consecutive `insmod`/`sysfs`/`ioctl`/`rmmod` cycles | Pending Mac parity |
 | Phase 1-7 PCIe capability/link inspection | Pending | User-verified (2026-10-21): `edu` (`256B` PCI config space, `0x05` MSI) vs. `pcie-root-port` (`4096B` ECAM config space, `0x10` PCIe `16.0 GT/s` `x32`, `0x11` MSI-X, `0x0001` AER) | Pending Mac parity |
 | Phase 2 QEMU NVMe queue/MSI-X/trace/reset | Pending | User-verified (2026-10-21, 2026-10-22, 2026-10-24): `2/0/0` I/O queues, `nvme0q0`/`q1`/`q2` MSI-X vectors, per-CPU `taskset` routing, end-to-end `dd` `nvme_setup_cmd` -> `nvme_sq` -> `nvme_complete_rq` trace, and 20-command `reset_controller` Admin teardown/re-init trace | Pending Mac parity |
-| Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs checks passed on 2026-10-22 | Host-local only |
+| Phase 3 target debug kernel & `.deb` build | N/A (WSL host builds x86_64 target `.deb`) | User-verified (2026-10-26): `KGDB`/`DMA_API_DEBUG`/`PCIEAER`/`PCI_DEBUG` enabled (`configure-debug-kernel.sh`), guest `DMA-API` (65536 entries) & `kgdboc` (`ttyS0`) verified with zero DMA warnings across `edu_pci` load/test/unload, and `linux-image`/`linux-headers` `.deb` packages built (`build-deb-kernel.sh`) | Ready for physical target PC install |
+| Host-local artifact integrity | QEMU overlay clean after the 2026-08-26 learner run | Static module/initramfs/deb checks passed on 2026-10-26 | Host-local only |
 
 ## Cross-host completion rules
 
