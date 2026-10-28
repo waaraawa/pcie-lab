@@ -26,10 +26,13 @@ software 쪽 불확실성을 줄인 다음 실제 하드웨어와 Windows로 이
 
 ## Current position
 
-As of 2026-10-24, **Phase 1 (QEMU EDU and PCIe capability comparison) and Phase 2
-(QEMU NVMe PCIe data path) are complete on WSL**, and the project is preparing for
-**Phase 3 (Physical PCIe hardware Linux driver)** pending physical PC and endpoint
-acquisition.
+As of 2026-10-28, **Phase 1 (QEMU EDU and PCIe capability comparison) and Phase 2
+(QEMU NVMe PCIe data path) are complete on WSL**, and **Phase 3 Host Bring-up is
+complete on the physical ASUS PRIME B760M-A D4 target PC** (`jin@jin-ubuntu`,
+Ubuntu 24.04.5 LTS running our custom `6.12.101` debug kernel with
+`DMA_API_DEBUG`, Intel VT-d `iommu: Default domain type: Translated`, `PCIEAER`,
+`ttyS0`, and `/lib/modules/6.12.101/build`), awaiting arrival of the PCIe
+endpoint card.
 
 In addition to the user-verified WSL INTx/MSI DMA round-trip and timeout cleanup
 runs, the Phase 1 driver exposes a read-only `sysfs` `identification` attribute

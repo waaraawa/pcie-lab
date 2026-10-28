@@ -82,19 +82,22 @@ reference design that exposes BAR, legacy/MSI/MSI-X, and DMA tests.
 - The remaining gap to an AI/NPU production host stack is explicitly
   documented.
 
-## Selected physical lab hardware and pre-arrival preparation (2026-10-26)
+## Selected physical lab hardware and host bring-up (2026-10-26 – 2026-10-28)
 
-- **Target x86 Linux host motherboard**: **ASUS PRIME B760M-A D4**
-  - Storage: SATA SSD (supported built-in by `CONFIG_SATA_AHCI=y`)
-  - Network: Onboard Realtek 2.5GbE (supported built-in by `CONFIG_R8169=y`)
-  - Serial console / `kgdb`: Onboard COM1 header (`0x3f8` / IRQ 4, `ttyS0`, supported built-in by `CONFIG_SERIAL_8250=y`, `CONFIG_SERIAL_8250_PNP=y`, `CONFIG_SERIAL_8250_CONSOLE=y`; configure GRUB with `console=tty0 console=ttyS0,115200n8 kgdboc=ttyS0,115200`)
-- **Primary PCIe x1 Endpoint (Steps 1–4)**: **WCH CH382L dual serial port card**
+- **Target x86 Linux host motherboard**: **ASUS PRIME B760M-A D4** (`jin@jin-ubuntu`, Ubuntu 24.04.5 LTS)
+  - Storage: 232.9G SATA SSD (`00:17.0` `8086:7a62` AHCI, `sda1` `/boot/efi` + `sda2` `/`, supported built-in by `CONFIG_SATA_AHCI=y`)
+  - Network: Onboard Realtek RTL8125B 2.5GbE (`03:00.0` `10ec:8125`, `enp3s0`, supported built-in by `CONFIG_R8169=y` + `CONFIG_REALTEK_PHY=y`)
+  - PCIe Root Ports: `00:1a.0` (`8086:7a48`), `00:1c.0` (`8086:7a38`), `00:1c.2` (`8086:7a3a`), `00:1d.0` (`8086:7a36`)
+  - IOMMU & AER: Intel VT-d enabled (`ACPI: DMAR`, `DMAR-IR: Enabled IRQ remapping in x2apic mode`, `iommu: Default domain type: Translated`) and OS-controlled PCIe AER (`pcieport 0000:00:1c.2: AER: enabled with IRQ 122`)
+  - Serial console / `kgdb`: Onboard COM1 header (`00:01: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A`, supported built-in by `CONFIG_SERIAL_8250=y`, `CONFIG_SERIAL_8250_PNP=y`, `CONFIG_SERIAL_8250_CONSOLE=y`; configure GRUB with `console=tty0 console=ttyS0,115200n8 kgdboc=ttyS0,115200` when serial cable is attached)
+- **Primary PCIe x1 Endpoint (Steps 1–4, in transit)**: **WCH CH382L dual serial port card**
   - PCI IDs (`include/linux/pci_ids.h:2592`): Vendor `0x1c00` (`PCI_VENDOR_ID_WCHIC`), Device `0x3253` (`PCI_DEVICE_ID_WCHIC_CH382_2S`) or `0x3250` (`CH382_2S1P`)
   - In-tree Linux reference (`drivers/tty/serial/8250/8250_pci.c` `pbn_wch382_2`): `BAR0`, `num_ports = 2`, `first_offset = 0xC0` (Port 0 at `BAR0 + 0xC0`, Port 1 at `BAR0 + 0xC8`, `uart_offset = 8`, `base_baud = 115200`)
-  - Scope: physical PCIe x1 link/enumeration, 4 KiB ECAM configuration space & capabilities, BAR0 mapping, register I/O, and hardware TX/RX loopback IRQ between Port 0 and Port 1 (a separate bus-master PCIe NIC or secondary NVMe endpoint can be used for Step 5 DMA/IOMMU)
-- **Target debug kernel & `.deb` packages prepared on WSL**:
+  - Scope: physical PCIe x1 link/enumeration, 4 KiB ECAM configuration space & capabilities, BAR0 mapping, register I/O, and hardware TX/RX loopback IRQ between Port 0 and Port 1 (a separate bus-master PCIe NIC such as Intel I210-T1 or 82574L or secondary NVMe endpoint can be used for Step 5 DMA/IOMMU)
+- **Target debug kernel & `.deb` packages installed and user-verified on target PC (2026-10-28)**:
   - `scripts/wsl/phase3/configure-debug-kernel.sh`: enables `CONFIG_KGDB=y`, `CONFIG_KGDB_SERIAL_CONSOLE=y`, `CONFIG_KGDB_KDB=y`, `CONFIG_DMA_API_DEBUG=y`, `CONFIG_PCIEAER=y`, and `CONFIG_PCI_DEBUG=y`
   - `scripts/wsl/phase3/build-deb-kernel.sh`: builds `local/wsl/linux-image-6.12.101_6.12.101-6_amd64.deb` and `local/wsl/linux-headers-6.12.101_6.12.101-6_amd64.deb` via `make bindeb-pkg` while keeping the matching 374 MiB `local/wsl/linux-6.12.101/vmlinux` on the WSL host for remote `kgdb`
+  - Installed on `jin@jin-ubuntu` via `dpkg -i`, configured GRUB (`GRUB_DEFAULT=saved`, `grub-set-default "Advanced options for Ubuntu>Ubuntu, with Linux 6.12.101"`), and verified on running `6.12.101`: `DMA-API: preallocated 65536 debug entries`, `iommu: Default domain type: Translated`, `AER: enabled`, `ttyS0 at I/O 0x3f8`, and `/lib/modules/6.12.101/build -> /usr/src/linux-headers-6.12.101`.
 
 ## Out of scope until hardware assembly
 
